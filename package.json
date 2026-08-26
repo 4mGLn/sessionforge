@@ -1,0 +1,26 @@
+{
+  "name": "sessionforge",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "bin": {
+    "sessionforge": "./src/cli/bin.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "cli": "tsx ./src/cli/bin.ts",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@getpaseo/client": "^0.4.0",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/node": "^22.13.0",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "zod": "^4.4.3"
+  }
+}
