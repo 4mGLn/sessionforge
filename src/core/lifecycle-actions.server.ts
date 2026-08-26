@@ -82,7 +82,7 @@ export interface CleanupResult {
   applied: Session[];
 }
 
-/** GOALD §11/§12: dry-run by default. Only trashes sessions when `dryRun` is explicitly false. */
+/** GOAL §11/§12: dry-run by default. Only trashes sessions when `dryRun` is explicitly false. */
 export function runCleanup(store: SessionStore, actor: string, dryRun: boolean): CleanupResult {
   const candidates = junkCandidates(store);
   if (dryRun) {

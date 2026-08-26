@@ -23,7 +23,7 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-/** Local heuristic classifier (GOALD §6/§7). No network calls, no LLM — MVP scope is KEEP/ARCHIVE/JUNK only. */
+/** Local heuristic classifier (GOAL §6/§7). No network calls, no LLM — MVP scope is KEEP/ARCHIVE/JUNK only. */
 export function classifySession(input: ClassifyInput): SessionClassification {
   const classifiedAt = nowIso();
 
