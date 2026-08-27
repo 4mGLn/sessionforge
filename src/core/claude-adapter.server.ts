@@ -3,6 +3,7 @@ import { join, basename } from "node:path";
 import { readdir, stat } from "node:fs/promises";
 import type { AgentAdapter, DiscoveredSession } from "./types.server.js";
 import { parseClaudeTranscript } from "./claude-transcript.server.js";
+import { moveToTrash } from "./trash.server.js";
 
 function claudeProjectsRoot(): string {
   const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
@@ -39,9 +40,17 @@ async function listSessionFiles(projectsRoot: string): Promise<string[]> {
   return files;
 }
 
-/** Reference adapter implementation. Read-only: only reads `~/.claude/projects/**​/*.jsonl`, never writes agent-owned files. */
+/**
+ * Reference adapter implementation. discover() is read-only: only reads `~/.claude/projects/**​/*.jsonl`.
+ * delete() is the one explicit, user-confirmed exception — it moves a single session's transcript file
+ * to the system trash (never a hard unlink; see trash.server.ts).
+ */
 export class ClaudeCodeAdapter implements AgentAdapter {
   readonly agent = "claude-code" as const;
+
+  async delete(storagePath: string): Promise<void> {
+    await moveToTrash(storagePath);
+  }
 
   async discover(): Promise<DiscoveredSession[]> {
     const projectsRoot = claudeProjectsRoot();

@@ -3,6 +3,7 @@ import { SessionsSurface } from "./main.client";
 import {
   archiveSessionRpc,
   cleanupSessionsRpc,
+  deleteSessionsRpc,
   discoverSessionsRpc,
   listSessionsRpc,
   restoreSessionRpc,
@@ -12,6 +13,7 @@ import {
 import {
   archiveSessionHandler,
   cleanupSessions,
+  deleteSessionsHandler,
   discoverSessions,
   listSessions,
   restoreSessionHandler,
@@ -28,6 +30,7 @@ export default function contribute(plugin: PluginContext) {
   plugin.handle(cleanupSessionsRpc, cleanupSessions);
   plugin.handle(archiveSessionRpc, archiveSessionHandler);
   plugin.handle(restoreSessionRpc, restoreSessionHandler);
+  plugin.handle(deleteSessionsRpc, deleteSessionsHandler);
 
   plugin.addSurface("sessions", SessionsSurface);
   plugin.addSidebarItem({ id: "sessionforge", title: "SessionForge", icon: "Blocks", surface: "sessions" });

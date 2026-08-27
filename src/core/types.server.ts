@@ -83,6 +83,8 @@ export interface Session {
 export interface AgentAdapter {
   readonly agent: AgentId;
   discover(): Promise<DiscoveredSession[]>;
+  /** Explicit, user-confirmed deletion of a single session's on-disk file. Never called during discover(). */
+  delete?(storagePath: string): Promise<void>;
 }
 
 export interface AuditEntry {

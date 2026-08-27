@@ -103,3 +103,12 @@ export const restoreSessionRpc = defineRpc({
   input: z.object({ id: z.string(), reason: z.string().optional() }),
   output: z.object({ session: SessionSchema }),
 });
+
+export const deleteSessionsRpc = defineRpc({
+  name: "session.delete",
+  input: z.object({ ids: z.array(z.string()), reason: z.string().optional() }),
+  output: z.object({
+    deleted: z.array(SessionSchema),
+    failed: z.array(z.object({ id: z.string(), error: z.string() })),
+  }),
+});

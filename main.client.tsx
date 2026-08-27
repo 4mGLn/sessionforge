@@ -1,10 +1,11 @@
 import type { PluginSurfaceProps } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Image, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import {
   archiveSessionRpc,
   cleanupSessionsRpc,
+  deleteSessionsRpc,
   discoverSessionsRpc,
   listSessionsRpc,
   restoreSessionRpc,
@@ -109,6 +110,10 @@ function formatDateTime(iso: string): string {
   return date.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const units = ["KB", "MB", "GB"];
@@ -185,10 +190,10 @@ function SessionPreviewModal({ session, theme, onClose, onArchive, onRestore }: 
         borderRadius: RADIUS.sm,
         alignItems: "center" as const,
         justifyContent: "center" as const,
-        backgroundColor: AGENT_COLORS[agent] ?? theme.colors.foregroundMuted,
+        backgroundColor: AGENT_ICON_URI[agent] ? "transparent" : (AGENT_COLORS[agent] ?? theme.colors.foregroundMuted),
       }),
       agentBadgeText: { color: theme.colors.accentForeground, fontSize: 9, fontWeight: "700" as const },
-      agentBadgeIcon: { width: 13, height: 13 },
+      agentBadgeIcon: { width: 19, height: 19 },
       metaText: { color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.sm },
       badge: (tone: Tone) => ({
         alignSelf: "flex-start" as const,
@@ -412,6 +417,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
   const cleanupSessions = useRpc(cleanupSessionsRpc);
   const archiveSession = useRpc(archiveSessionRpc);
   const restoreSession = useRpc(restoreSessionRpc);
+  const deleteSessionsRpcCall = useRpc(deleteSessionsRpc);
   const discoverSessions = useRpc(discoverSessionsRpc);
 
   const [sessions, setSessions] = useState<SessionDto[]>([]);
@@ -419,15 +425,42 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
   const [category, setCategory] = useState<CategoryFilter>("ALL");
   const [agentTab, setAgentTab] = useState<string>(AGENT_TAB_ALL);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [rescanning, setRescanning] = useState(false);
   const [cleanupCandidates, setCleanupCandidates] = useState<SessionDto[] | null>(null);
   const [applyingCleanup, setApplyingCleanup] = useState(false);
   const [bulkArchiving, setBulkArchiving] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [previewSession, setPreviewSession] = useState<SessionDto | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; confirmLabel: string; run: () => void } | null>(
     null,
   );
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Pressable's synthetic event doesn't reliably carry the browser's shiftKey in this react-native-web
+  // host (the same class of gesture-responder unreliability that forced raw window mouse listeners for
+  // the preview dialog's resize handle) — tracking it via raw keydown/keyup is the reliable alternative.
+  const shiftPressedRef = useRef(false);
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Shift") shiftPressedRef.current = true;
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Shift") shiftPressedRef.current = false;
+    };
+    const onBlur = () => {
+      shiftPressedRef.current = false;
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -483,45 +516,63 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
 
   const dismissCleanupPreview = useCallback(() => setCleanupCandidates(null), []);
 
+  const sessionLabel = useCallback(
+    (id: string) => sessions.find((s) => s.id === id)?.title ?? sessions.find((s) => s.id === id)?.firstUserMessage ?? id,
+    [sessions],
+  );
+
   const onArchive = useCallback(
     async (id: string) => {
-      await archiveSession({ id });
-      await refresh();
+      setActionError(null);
+      try {
+        await archiveSession({ id });
+        await refresh();
+      } catch (error) {
+        setActionError(`Could not archive "${sessionLabel(id)}": ${errorMessage(error)}`);
+      }
     },
-    [archiveSession, refresh],
+    [archiveSession, refresh, sessionLabel],
   );
 
   const onRestore = useCallback(
     async (id: string) => {
-      await restoreSession({ id });
-      await refresh();
+      setActionError(null);
+      try {
+        await restoreSession({ id });
+        await refresh();
+      } catch (error) {
+        setActionError(`Could not restore "${sessionLabel(id)}": ${errorMessage(error)}`);
+      }
     },
-    [restoreSession, refresh],
+    [restoreSession, refresh, sessionLabel],
   );
 
-  const toggleSelected = useCallback((id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const clearSelection = useCallback(() => {
+    setSelected(new Set());
+    setLastSelectedIndex(null);
   }, []);
 
-  const clearSelection = useCallback(() => setSelected(new Set()), []);
-
   const archiveSelected = useCallback(async () => {
+    setActionError(null);
     setBulkArchiving(true);
     try {
+      const failures: string[] = [];
       for (const id of selected) {
-        await archiveSession({ id });
+        try {
+          await archiveSession({ id });
+        } catch (error) {
+          failures.push(`"${sessionLabel(id)}" — ${errorMessage(error)}`);
+        }
       }
       clearSelection();
       await refresh();
+      if (failures.length > 0) {
+        setActionError(`Currently impossible to archive ${failures.length} session(s): ${failures.join("; ")}`);
+      }
     } finally {
       setBulkArchiving(false);
     }
-  }, [selected, archiveSession, clearSelection, refresh]);
+  }, [selected, archiveSession, clearSelection, refresh, sessionLabel]);
 
   const requestArchiveSelected = useCallback(() => {
     if (selected.size === 0) return;
@@ -532,6 +583,32 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
       run: archiveSelected,
     });
   }, [selected, archiveSelected]);
+
+  const deleteSelected = useCallback(async () => {
+    setActionError(null);
+    setBulkDeleting(true);
+    try {
+      const result = await deleteSessionsRpcCall({ ids: Array.from(selected) });
+      clearSelection();
+      await refresh();
+      if (result.failed.length > 0) {
+        const failures = result.failed.map((f) => `"${sessionLabel(f.id)}" — ${f.error}`);
+        setActionError(`Currently impossible to delete ${failures.length} session(s): ${failures.join("; ")}`);
+      }
+    } finally {
+      setBulkDeleting(false);
+    }
+  }, [selected, deleteSessionsRpcCall, clearSelection, refresh, sessionLabel]);
+
+  const requestDeleteSelected = useCallback(() => {
+    if (selected.size === 0) return;
+    setConfirmAction({
+      title: "Delete selected sessions?",
+      message: `${selected.size} session(s) will be removed from SessionForge and their files moved to your system's Trash. SessionForge cannot restore them from here — recovery, if any, depends on your OS trash.`,
+      confirmLabel: "Delete",
+      run: deleteSelected,
+    });
+  }, [selected, deleteSelected]);
 
   const agentTabs = useMemo(() => {
     const counts = new Map<string, number>();
@@ -556,6 +633,33 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
   const visibleSessions = useMemo(
     () => (agentTab === AGENT_TAB_ALL ? sessions : sessions.filter((s) => s.agent === agentTab)),
     [sessions, agentTab],
+  );
+
+  /**
+   * Plain click toggles one row and becomes the new anchor. Shift-click extends the selection to every
+   * row between the anchor and this row — the anchor itself stays put across repeated shift-clicks (same
+   * convention as file explorers/Gmail), so shift-clicking a nearer row shrinks the range back down instead
+   * of extending it further from wherever the previous shift-click landed.
+   */
+  const toggleSelected = useCallback(
+    (id: string, index: number, extendRange: boolean) => {
+      if (extendRange && lastSelectedIndex !== null) {
+        const start = Math.min(lastSelectedIndex, index);
+        const end = Math.max(lastSelectedIndex, index);
+        const rangeIds = visibleSessions.slice(start, end + 1).map((session) => session.id);
+        setSelected((prev) => new Set([...prev, ...rangeIds]));
+        return;
+      }
+
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      setLastSelectedIndex(index);
+    },
+    [lastSelectedIndex, visibleSessions],
   );
 
   const showTable = !layout.compact;
@@ -623,6 +727,17 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         fontSize: FONT_SIZE.sm,
         color: tone === "danger" ? theme.colors.statusDanger : theme.colors.accent,
       }),
+      actionErrorBanner: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: SPACING[2],
+        padding: layout.compact ? SPACING[2] : SPACING[3],
+        borderBottomWidth: 1,
+        borderBottomColor: theme.colors.statusDanger,
+      },
+      actionErrorText: { flex: 1, color: theme.colors.statusDanger, fontSize: FONT_SIZE.sm },
+      actionErrorDismiss: { paddingHorizontal: SPACING[2], paddingVertical: SPACING[1] },
+      actionErrorDismissText: { color: theme.colors.statusDanger, fontSize: FONT_SIZE.sm, fontWeight: "500" as const },
       cleanupBanner: {
         padding: layout.compact ? SPACING[3] : SPACING[4],
         gap: SPACING[1],
@@ -663,6 +778,16 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         borderColor: theme.colors.accentForeground,
         backgroundColor: filled ? theme.colors.accentForeground : "transparent",
       }),
+      bulkBarButtonDanger: {
+        paddingHorizontal: SPACING[3],
+        height: 28,
+        justifyContent: "center" as const,
+        borderRadius: RADIUS.sm,
+        borderWidth: 1,
+        borderColor: theme.colors.statusDanger,
+        backgroundColor: theme.colors.statusDanger,
+      },
+      bulkBarButtonDangerText: { fontSize: FONT_SIZE.sm, fontWeight: "500" as const, color: theme.colors.accentForeground },
       bulkBarButtonText: (filled: boolean) => ({
         fontSize: FONT_SIZE.sm,
         fontWeight: "500" as const,
@@ -670,16 +795,20 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
       }),
       // Extra bottom padding keeps the last rows from being covered by the floating bulk-select bar.
       listContent: { padding: layout.compact ? SPACING[2] : SPACING[3], paddingBottom: SPACING[6] * 2, gap: SPACING[2] },
+      // Rendered as the FlatList's own ListHeaderComponent (see below), so it's a child of the same
+      // padded scroll container as every row — no paddingHorizontal of its own, or it'd double up with
+      // listContent's padding the same way each row must not add one either. backgroundColor is required
+      // because stickyHeaderIndices renders this pinned on top of rows scrolling underneath it.
       headerRow: {
         flexDirection: "row" as const,
         alignItems: "center" as const,
         gap: SPACING[3],
-        paddingHorizontal: SPACING[3],
         paddingTop: SPACING[1],
         paddingBottom: SPACING[3],
         marginBottom: SPACING[1],
         borderBottomWidth: 1,
         borderBottomColor: theme.colors.foregroundMuted,
+        backgroundColor: theme.colors.surface0,
       },
       headerText: { color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.sm, fontWeight: "500" as const },
       row: (isSelected: boolean) => ({
@@ -687,7 +816,6 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         alignItems: "center" as const,
         gap: SPACING[3],
         paddingVertical: SPACING[3],
-        paddingHorizontal: SPACING[3],
         borderRadius: RADIUS.lg,
         borderLeftWidth: isSelected ? 3 : 0,
         borderLeftColor: theme.colors.accent,
@@ -703,18 +831,19 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         backgroundColor: checked ? theme.colors.accent : "transparent",
       }),
       checkmark: { color: theme.colors.accentForeground, fontSize: 12, fontWeight: "700" as const },
-      // Rounded-square "icon tile" (app-icon convention) filled with the provider's brand color,
-      // standing in for a real logo the plugin has no way to render — see AGENT_COLORS above.
+      // Transparent when a real rasterized logo is available (every currently-supported agent) so the
+      // logo sits directly on the row. Falls back to a colored "icon tile" with initials — see
+      // AGENT_COLORS above — only for an agent with no logo asset (e.g. a future/custom adapter).
       agentBadge: (agent: string) => ({
         width: 26,
         height: 26,
         borderRadius: RADIUS.md,
         alignItems: "center" as const,
         justifyContent: "center" as const,
-        backgroundColor: AGENT_COLORS[agent] ?? theme.colors.foregroundMuted,
+        backgroundColor: AGENT_ICON_URI[agent] ? "transparent" : (AGENT_COLORS[agent] ?? theme.colors.foregroundMuted),
       }),
       agentBadgeText: { color: theme.colors.accentForeground, fontSize: 10, fontWeight: "700" as const },
-      agentBadgeIcon: { width: 14, height: 14 },
+      agentBadgeIcon: { width: 22, height: 22 },
       title: { color: theme.colors.foreground, fontSize: FONT_SIZE.base, opacity: 0.86 },
       subtitle: { color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.sm, marginTop: 2 },
       metaRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: SPACING[2], marginTop: 2, flexWrap: "wrap" as const },
@@ -771,6 +900,15 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         </View>
       </View>
 
+      {actionError ? (
+        <View style={styles.actionErrorBanner}>
+          <Text style={styles.actionErrorText}>{actionError}</Text>
+          <Pressable style={styles.actionErrorDismiss} onPress={() => setActionError(null)}>
+            <Text style={styles.actionErrorDismissText}>Dismiss</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {cleanupCandidates ? (
         <View style={styles.cleanupBanner}>
           {cleanupCandidates.length === 0 ? (
@@ -805,26 +943,14 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         <View style={styles.bulkBar}>
           <Text style={styles.bulkBarText}>{selected.size} selected</Text>
           <Pressable style={styles.bulkBarButton(false)} onPress={clearSelection}>
-            <Text style={styles.bulkBarButtonText(false)}>Clear</Text>
+            <Text style={styles.bulkBarButtonText(false)}>Deselect</Text>
           </Pressable>
           <Pressable style={styles.bulkBarButton(true)} onPress={requestArchiveSelected} disabled={bulkArchiving}>
             <Text style={styles.bulkBarButtonText(true)}>{bulkArchiving ? "Archiving..." : "Archive selected"}</Text>
           </Pressable>
-        </View>
-      ) : null}
-
-      {showTable ? (
-        <View style={styles.headerRow}>
-          <View style={{ width: 18 }} />
-          {agentTab === AGENT_TAB_ALL ? <View style={{ width: 24 }} /> : null}
-          <Text style={[styles.headerText, { flex: 1 }]}>SESSION</Text>
-          <Text style={[styles.headerText, styles.col(COLUMN.status)]}>STATUS</Text>
-          <Text style={[styles.headerText, styles.col(COLUMN.project)]}>PROJECT</Text>
-          <Text style={[styles.headerText, styles.col(COLUMN.created)]}>CREATED</Text>
-          <Text style={[styles.headerText, styles.col(COLUMN.active)]}>ACTIVE</Text>
-          <Text style={[styles.headerText, styles.col(COLUMN.msgs)]}>MSGS</Text>
-          <Text style={[styles.headerText, styles.col(COLUMN.size), { textAlign: "right" }]}>SIZE</Text>
-          <View style={{ width: 76 }} />
+          <Pressable style={styles.bulkBarButtonDanger} onPress={requestDeleteSelected} disabled={bulkDeleting}>
+            <Text style={styles.bulkBarButtonDangerText}>{bulkDeleting ? "Deleting..." : "Delete selected"}</Text>
+          </Pressable>
         </View>
       ) : null}
 
@@ -835,7 +961,32 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
           data={visibleSessions}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => {
+          // The header used to be a sibling View next to FlatList, sized to match it by hand — but a
+          // separately-positioned element can never be guaranteed to line up with a scrollable one: once
+          // there are enough rows to need a scrollbar, the scrollbar eats a few px from the row area's
+          // width while the standalone header keeps its full width, so columns drift out of sync starting
+          // wherever the accumulated offset becomes visible. Rendering it as the FlatList's own sticky
+          // header instead means it's a child of the exact same scroll container as every row, so the two
+          // can never desync regardless of scrollbar width, font metrics, or padding.
+          stickyHeaderIndices={showTable ? [0] : undefined}
+          ListHeaderComponent={
+            showTable ? (
+              <View style={styles.headerRow}>
+                <View style={{ width: 18 }} />
+                {agentTab === AGENT_TAB_ALL ? <View style={{ width: 26 }} /> : null}
+                <Text style={[styles.headerText, { flex: 1 }]}>SESSION</Text>
+                <Text style={[styles.headerText, styles.col(COLUMN.status)]}>STATUS</Text>
+                <Text style={[styles.headerText, styles.col(COLUMN.project)]}>PROJECT</Text>
+                <Text style={[styles.headerText, styles.col(COLUMN.created)]}>CREATED</Text>
+                <Text style={[styles.headerText, styles.col(COLUMN.active)]}>ACTIVE</Text>
+                <Text style={[styles.headerText, styles.col(COLUMN.msgs)]}>MSG</Text>
+                <Text style={[styles.headerText, styles.col(COLUMN.size), { textAlign: "right" }]}>SIZE</Text>
+                {/* No label needed here — this reserves the same width as each row's Archive/Restore button. */}
+                <View style={{ width: 76 }} />
+              </View>
+            ) : null
+          }
+          renderItem={({ item, index }) => {
             const isSelected = selected.has(item.id);
             const actionButton =
               item.lifecycle === "ARCHIVED" || item.lifecycle === "JUNK" ? (
@@ -850,7 +1001,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
 
             return (
               <View style={styles.row(isSelected)}>
-                <Pressable style={styles.checkbox(isSelected)} onPress={() => toggleSelected(item.id)}>
+                <Pressable style={styles.checkbox(isSelected)} onPress={() => toggleSelected(item.id, index, shiftPressedRef.current)}>
                   {isSelected ? <Text style={styles.checkmark}>✓</Text> : null}
                 </Pressable>
                 {agentTab === AGENT_TAB_ALL ? (

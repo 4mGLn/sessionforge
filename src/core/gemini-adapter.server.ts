@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { AgentAdapter, DiscoveredSession } from "./types.server.js";
 import { capFirstMessage } from "./text-utils.server.js";
+import { moveToTrash } from "./trash.server.js";
 
 interface GeminiMessage {
   type?: string;
@@ -89,9 +90,17 @@ async function listSessionFiles(tmpRoot: string): Promise<string[]> {
   return files;
 }
 
-/** Reads Gemini CLI's own `~/.gemini/tmp/<project>/chats/*.json` session files. Read-only. */
+/**
+ * Reads Gemini CLI's own `~/.gemini/tmp/<project>/chats/*.json` session files. discover() is read-only;
+ * delete() is the one explicit, user-confirmed exception — it moves a single session file to the
+ * system trash (never a hard unlink; see trash.server.ts).
+ */
 export class GeminiCliAdapter implements AgentAdapter {
   readonly agent = "gemini-cli" as const;
+
+  async delete(storagePath: string): Promise<void> {
+    await moveToTrash(storagePath);
+  }
 
   async discover(): Promise<DiscoveredSession[]> {
     const tmpRoot = join(geminiHomeDir(), "tmp");

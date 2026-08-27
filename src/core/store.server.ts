@@ -246,6 +246,11 @@ export class SessionStore {
     return rows.map(rowToSession);
   }
 
+  /** Drops SessionForge's own record of a session. Call only after its on-disk file has actually been removed. */
+  deleteSession(id: string): void {
+    this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+  }
+
   recordAudit(entry: Omit<AuditEntry, "id">): void {
     this.db
       .prepare(

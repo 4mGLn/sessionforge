@@ -2,7 +2,7 @@ import { ClaudeCodeAdapter } from "../core/claude-adapter.server.js";
 import { CodexAdapter } from "../core/codex-adapter.server.js";
 import { runDiscovery } from "../core/discover.server.js";
 import { GeminiCliAdapter } from "../core/gemini-adapter.server.js";
-import { archiveSession, restoreSession, runCleanup } from "../core/lifecycle-actions.server.js";
+import { archiveSession, deleteSessions, restoreSession, runCleanup } from "../core/lifecycle-actions.server.js";
 import { SessionStore } from "../core/store.server.js";
 import type { SessionFilter } from "../core/types.server.js";
 
@@ -65,4 +65,8 @@ export async function archiveSessionHandler(input: { id: string; reason?: string
 
 export async function restoreSessionHandler(input: { id: string; reason?: string }) {
   return { session: restoreSession(store(), input.id, ACTOR, input.reason ?? null) };
+}
+
+export async function deleteSessionsHandler(input: { ids: string[]; reason?: string }) {
+  return deleteSessions(store(), ADAPTERS, input.ids, ACTOR, input.reason ?? null);
 }

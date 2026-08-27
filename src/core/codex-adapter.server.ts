@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { AgentAdapter, DiscoveredSession } from "./types.server.js";
 import { capFirstMessage } from "./text-utils.server.js";
+import { moveToTrash } from "./trash.server.js";
 
 function codexHomeDir(): string {
   return process.env.CODEX_HOME ?? join(homedir(), ".codex");
@@ -36,6 +37,16 @@ interface ThreadRow {
 /** Reads Codex's own state DB directly. Read-only: never opens the DB for writes. */
 export class CodexAdapter implements AgentAdapter {
   readonly agent = "codex" as const;
+
+  /**
+   * Explicit, user-confirmed deletion. Moves only the session's own rollout log file
+   * (`thread.rollout_path`) to the system trash — this never opens `state_5.sqlite`/`thread_history_1.sqlite`
+   * for writes. Codex's own thread index will keep a row pointing at a now-missing file; reconciling that
+   * is Codex's concern, not SessionForge's — we never write to another tool's live database.
+   */
+  async delete(storagePath: string): Promise<void> {
+    await moveToTrash(storagePath);
+  }
 
   async discover(): Promise<DiscoveredSession[]> {
     const statePath = join(codexHomeDir(), "state_5.sqlite");
