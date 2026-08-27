@@ -794,7 +794,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         color: filled ? theme.colors.accent : theme.colors.accentForeground,
       }),
       // Extra bottom padding keeps the last rows from being covered by the floating bulk-select bar.
-      listContent: { padding: layout.compact ? SPACING[2] : SPACING[3], paddingBottom: SPACING[6] * 2, gap: SPACING[2] },
+      listContent: { padding: layout.compact ? SPACING[2] : SPACING[3], paddingBottom: SPACING[6] * 2, gap: SPACING[1] },
       // Rendered as the FlatList's own ListHeaderComponent (see below), so it's a child of the same
       // padded scroll container as every row — no paddingHorizontal of its own, or it'd double up with
       // listContent's padding the same way each row must not add one either. backgroundColor is required
@@ -811,14 +811,20 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         backgroundColor: theme.colors.surface0,
       },
       headerText: { color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.sm, fontWeight: "500" as const },
+      // Full-row tint instead of a left accent bar — theme only exposes flat colors, no alpha variants,
+      // so the accent's own hex gets an alpha suffix here for a subtle wash rather than a solid fill.
+      // userSelect: none stops the browser from treating shift-click as "extend text selection" (its
+      // native meaning whenever the click lands near selectable text) — without it, a shift-click's first
+      // hit gets consumed by the browser as a text-selection drag instead of reaching the checkbox's press
+      // handler, so range-select only took effect on a second click.
       row: (isSelected: boolean) => ({
         flexDirection: "row" as const,
         alignItems: "center" as const,
         gap: SPACING[3],
-        paddingVertical: SPACING[3],
+        paddingVertical: SPACING[2],
         borderRadius: RADIUS.lg,
-        borderLeftWidth: isSelected ? 3 : 0,
-        borderLeftColor: theme.colors.accent,
+        backgroundColor: isSelected ? `${theme.colors.accent}1a` : "transparent",
+        userSelect: "none" as const,
       }),
       checkbox: (checked: boolean) => ({
         width: 18,
