@@ -730,7 +730,9 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
    * proven to work correctly here, so reusing it sidesteps that risk entirely instead of hoping
    * SectionList (a different component, likely built on a different internal path) works the same way.
    */
-  type TimelineRow = { kind: "day"; key: string; day: string } | { kind: "session"; key: string; session: SessionDto };
+  type TimelineRow =
+    | { kind: "day"; key: string; day: string }
+    | { kind: "session"; key: string; session: SessionDto; sessionIndex: number };
 
   const timelineRows = useMemo((): TimelineRow[] => {
     const byDay = new Map<string, SessionDto[]>();
@@ -743,13 +745,31 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
     const days = Array.from(byDay.entries()).sort(([a], [b]) => (a < b ? 1 : -1));
 
     const rows: TimelineRow[] = [];
+    let sessionIndex = 0;
     for (const [day, daySessions] of days) {
       rows.push({ kind: "day", key: `day:${day}`, day });
       const sorted = [...daySessions].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
-      for (const session of sorted) rows.push({ kind: "session", key: session.id, session });
+      for (const session of sorted) {
+        rows.push({ kind: "session", key: session.id, session, sessionIndex });
+        sessionIndex += 1;
+      }
     }
     return rows;
   }, [visibleSessions]);
+
+  /**
+   * Whichever ordered list of sessions the active view is actually showing — shift-click range-select
+   * needs to walk THIS order, not always visibleSessions, since the Timeline view groups by day (newest
+   * day first, oldest-in-day first) rather than the List view's raw fetch order.
+   */
+  const activeViewSessionOrder = useMemo(() => {
+    if (viewMode === "timeline") {
+      const order: SessionDto[] = [];
+      for (const row of timelineRows) if (row.kind === "session") order.push(row.session);
+      return order;
+    }
+    return visibleSessions;
+  }, [viewMode, timelineRows, visibleSessions]);
 
   /** Every relationship touching a given session, from either side — powers the timeline's duplicate/superseded badges. */
   const relationshipsBySessionId = useMemo(() => {
@@ -770,14 +790,17 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
    * Plain click toggles one row and becomes the new anchor. Shift-click extends the selection to every
    * row between the anchor and this row — the anchor itself stays put across repeated shift-clicks (same
    * convention as file explorers/Gmail), so shift-clicking a nearer row shrinks the range back down instead
-   * of extending it further from wherever the previous shift-click landed.
+   * of extending it further from wherever the previous shift-click landed. `index` is always relative to
+   * activeViewSessionOrder, so this works the same way in both List and Timeline despite their different
+   * row ordering — switching views between two shift-clicks isn't accounted for, same edge case as
+   * switching agent tabs or filters mid-range already was.
    */
   const toggleSelected = useCallback(
     (id: string, index: number, extendRange: boolean) => {
       if (extendRange && lastSelectedIndex !== null) {
         const start = Math.min(lastSelectedIndex, index);
         const end = Math.max(lastSelectedIndex, index);
-        const rangeIds = visibleSessions.slice(start, end + 1).map((session) => session.id);
+        const rangeIds = activeViewSessionOrder.slice(start, end + 1).map((session) => session.id);
         setSelected((prev) => new Set([...prev, ...rangeIds]));
         return;
       }
@@ -790,7 +813,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
       });
       setLastSelectedIndex(index);
     },
-    [lastSelectedIndex, visibleSessions],
+    [lastSelectedIndex, activeViewSessionOrder],
   );
 
   const showTable = !layout.compact;
@@ -1008,14 +1031,17 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         borderBottomColor: theme.colors.foregroundMuted,
       },
       timelineDayHeaderText: { color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.sm, fontWeight: "700" as const },
-      timelineEntry: {
+      // Same selected-row tint as the List view's row() — see its own comment for why an alpha suffix.
+      timelineEntry: (isSelected: boolean) => ({
         flexDirection: "row" as const,
         alignItems: "flex-start" as const,
         gap: SPACING[3],
         paddingVertical: SPACING[2],
         paddingHorizontal: SPACING[3],
         borderRadius: RADIUS.lg,
-      },
+        backgroundColor: isSelected ? `${theme.colors.accent}1a` : "transparent",
+        userSelect: "none" as const,
+      }),
       timelineEntryMeta: { color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.sm },
       timelineEntryNote: { color: theme.colors.foreground, fontSize: FONT_SIZE.base, opacity: 0.86, marginTop: 2 },
     }),
@@ -1138,15 +1164,32 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
             }
 
             const item = row.session;
+            const isSelected = selected.has(item.id);
             const itemRelationships = relationshipsBySessionId.get(item.id);
             const relationshipLabel = !itemRelationships
               ? null
               : itemRelationships.length === 1
                 ? itemRelationships[0].kind
                 : `${itemRelationships.length} related`;
+            const actionButton =
+              item.lifecycle === "ARCHIVED" || item.lifecycle === "JUNK" ? (
+                <Pressable style={styles.rowAction("accent")} onPress={() => onRestore(item.id)}>
+                  <Text style={styles.rowActionText("accent")}>Restore</Text>
+                </Pressable>
+              ) : (
+                <Pressable style={styles.rowAction("danger")} onPress={() => onArchive(item.id)}>
+                  <Text style={styles.rowActionText("danger")}>Archive</Text>
+                </Pressable>
+              );
 
             return (
-              <Pressable style={styles.timelineEntry} onPress={() => setPreviewSession(item)}>
+              <View style={styles.timelineEntry(isSelected)}>
+                <Pressable
+                  style={styles.checkbox(isSelected)}
+                  onPress={() => toggleSelected(item.id, row.sessionIndex, shiftPressedRef.current)}
+                >
+                  {isSelected ? <Text style={styles.checkmark}>✓</Text> : null}
+                </Pressable>
                 <View style={styles.agentBadge(item.agent)}>
                   {AGENT_ICON_URI[item.agent] ? (
                     <Image source={{ uri: AGENT_ICON_URI[item.agent] }} style={styles.agentBadgeIcon} resizeMode="contain" />
@@ -1154,7 +1197,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
                     <Text style={styles.agentBadgeText}>{agentInitials(item.agent)}</Text>
                   )}
                 </View>
-                <View style={{ flex: 1 }}>
+                <Pressable style={{ flex: 1 }} onPress={() => setPreviewSession(item)}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING[2] }}>
                     <Text style={styles.timelineEntryMeta}>
                       {agentLabel(item.agent)} · {item.project} · {formatRelative(item.createdAt)}
@@ -1168,8 +1211,9 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
                   <Text style={styles.timelineEntryNote} numberOfLines={2}>
                     {item.summary ?? item.title ?? item.firstUserMessage ?? "(untitled session)"}
                   </Text>
-                </View>
-              </Pressable>
+                </Pressable>
+                {actionButton}
+              </View>
             );
           }}
         />
