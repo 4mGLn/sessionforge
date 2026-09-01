@@ -179,9 +179,10 @@ index, not just substring matching; see `toFtsQuery()` in `store.server.ts`), lo
 DUPLICATE/SUPERSEDED relationship detection (§7/§8, `relationships.server.ts` — grouped by workspace, topic
 word-overlap + timing, surfaced in `session show`/the preview modal as "Related sessions" and as inline
 badges in the Timeline view; informational only, never auto-mutates a session's own `lifecycle`), a
-cross-agent Timeline view (§14 — day-grouped, all agents together, with relationship badges; the
-List/Timeline toggle in the toolbar), a native Paseo plugin UI (§15), and Linux/macOS/Windows support (§19
-— see "Platform support" above).
+cross-agent Timeline view (§14 — day-grouped, all agents together, with relationship badges and the same
+per-row checkbox/Archive-Restore and bulk-selection support as the List view, sharing one selection-state
+model between both; the List/Timeline toggle in the toolbar), a native Paseo plugin UI (§15), and
+Linux/macOS/Windows support (§19 — see "Platform support" above).
 
 Deferred to Phase 2 per GOAL.md: LLM-assisted classification, and true embedding-based semantic search
 (FTS5 above covers ranked lexical search; embeddings would be a separate, heavier addition).
