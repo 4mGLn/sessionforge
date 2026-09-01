@@ -1,12 +1,17 @@
-import { AiderAdapter } from "../core/aider-adapter.server.js";
-import { ClaudeCodeAdapter } from "../core/claude-adapter.server.js";
-import { CodexAdapter } from "../core/codex-adapter.server.js";
-import { runDiscovery } from "../core/discover.server.js";
-import { GeminiCliAdapter } from "../core/gemini-adapter.server.js";
-import { archiveSession, deleteSessions, restoreSession, runCleanup } from "../core/lifecycle-actions.server.js";
-import { OpenCodeAdapter } from "../core/opencode-adapter.server.js";
-import { SessionStore } from "../core/store.server.js";
-import type { SessionFilter } from "../core/types.server.js";
+import {
+  AiderAdapter,
+  ClaudeCodeAdapter,
+  CodexAdapter,
+  GeminiCliAdapter,
+  OpenCodeAdapter,
+  SessionStore,
+  archiveSession,
+  deleteSessions,
+  restoreSession,
+  runCleanup,
+  runDiscovery,
+} from "sessionforge-cli";
+import type { SessionFilter } from "sessionforge-cli";
 
 const ACTOR = "paseo-plugin";
 const ADAPTERS = [new ClaudeCodeAdapter(), new CodexAdapter(), new GeminiCliAdapter(), new OpenCodeAdapter(), new AiderAdapter()];

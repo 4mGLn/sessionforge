@@ -1,41 +1,53 @@
 # SessionForge
 
-A Paseo plugin (plus a standalone CLI) that discovers, classifies, and safely cleans up agent coding
-sessions across Claude Code, Codex, Gemini CLI, OpenCode, and Aider, with a KEEP / ARCHIVE / JUNK heuristic
-classifier. See `../GOAL.md` for the full product spec this implements against.
+Discovers, classifies, and safely cleans up agent coding sessions across Claude Code, Codex, Gemini CLI,
+OpenCode, and Aider, with a KEEP / ARCHIVE / JUNK heuristic classifier. See `../GOAL.md` for the full
+product spec this implements against.
+
+**This is not Paseo-only.** The repo is a two-package npm workspace: [`packages/cli`](packages/cli/README.md)
+is the actual engine — adapters, classification, search, persistence — with **zero Paseo/React
+dependency**, publishable and usable standalone (`npm install -g sessionforge-cli`, or as a library import
+in any Node project). The repo root is the Paseo plugin, a thin RPC/UI layer that depends on
+`sessionforge-cli` like any other npm package. Both talk to the same local SQLite database
+(`~/.sessionforge/sessionforge.db`), so `sessionforge archive <id>` from a terminal (with or without Paseo
+installed at all) is reflected immediately in the Paseo UI panel, if you happen to be running it, and vice
+versa.
 
 ## Layout
 
 ```
-src/core/                          agent-agnostic domain logic (no Paseo/RPC dependency)
-  types.server.ts                  Session / Classification / Adapter interfaces
-  claude-transcript.server.ts      streams a single Claude Code .jsonl transcript
-  claude-adapter.server.ts         discovers all Claude Code sessions on disk (read-only)
-  codex-adapter.server.ts          reads Codex's ~/.codex/state_5.sqlite + thread_history_1.sqlite (read-only)
-  gemini-adapter.server.ts         reads Gemini CLI's ~/.gemini/tmp/**/chats/session-*.json (read-only)
-  opencode-adapter.server.ts       reads OpenCode's ~/.local/share/opencode/opencode.db (read-only; no delete() —
+packages/cli/                      sessionforge-cli — the standalone package, zero Paseo dependency (own README)
+  src/index.ts                     public library export surface (what `import ... from "sessionforge-cli"` gets)
+  src/core/                        agent-agnostic domain logic
+    types.server.ts                Session / Classification / Adapter interfaces
+    claude-transcript.server.ts    streams a single Claude Code .jsonl transcript
+    claude-adapter.server.ts       discovers all Claude Code sessions on disk (read-only)
+    codex-adapter.server.ts        reads Codex's ~/.codex/state_5.sqlite + thread_history_1.sqlite (read-only)
+    gemini-adapter.server.ts       reads Gemini CLI's ~/.gemini/tmp/**/chats/session-*.json (read-only)
+    opencode-adapter.server.ts     reads OpenCode's ~/.local/share/opencode/opencode.db (read-only; no delete() —
                                     every session shares one live SQLite db, no discrete per-session file to move)
-  aider-adapter.server.ts          parses .aider.chat.history.md files found under AIDER_SEARCH_ROOTS (opt-in,
+    aider-adapter.server.ts        parses .aider.chat.history.md files found under AIDER_SEARCH_ROOTS (opt-in,
                                     unset by default — Aider has no central session directory to read); no delete()
                                     either, since sessions share one growing per-repo log file
-  text-utils.server.ts             capFirstMessage() etc. — caps oversized transcript fields before they hit the RPC transport
-  activity.server.ts               ACTIVE/RECENT/IDLE/STALE detection with confidence
-  classify.server.ts               KEEP/ARCHIVE/JUNK heuristic classifier
-  summarize.server.ts              local heuristic one-line "concise summary" (title/first-message + classifier outcome, no LLM)
-  relationships.server.ts          local heuristic DUPLICATE/SUPERSEDED cross-session detection (same workspace, topic word-overlap, timing)
-  trash.server.ts                  OS-dispatched move-to-trash for delete (Linux XDG Trash / macOS ~/.Trash / Windows Recycle Bin)
-  store.server.ts                  SQLite persistence + FTS5 ranked search (node:sqlite, ~/.sessionforge/sessionforge.db)
-  discover.server.ts               orchestrates adapters -> activity -> classify -> summarize -> store -> relationships
-  lifecycle-actions.server.ts      archive/restore/delete/cleanup + audit log
+    text-utils.server.ts           capFirstMessage() etc. — caps oversized transcript fields before they hit the RPC transport
+    activity.server.ts             ACTIVE/RECENT/IDLE/STALE detection with confidence
+    classify.server.ts             KEEP/ARCHIVE/JUNK heuristic classifier
+    summarize.server.ts            local heuristic one-line "concise summary" (title/first-message + classifier outcome, no LLM)
+    relationships.server.ts        local heuristic DUPLICATE/SUPERSEDED cross-session detection (same workspace, topic word-overlap, timing)
+    trash.server.ts                OS-dispatched move-to-trash for delete (Linux XDG Trash / macOS ~/.Trash / Windows Recycle Bin)
+    store.server.ts                SQLite persistence + FTS5 ranked search (node:sqlite, ~/.sessionforge/sessionforge.db)
+    discover.server.ts             orchestrates adapters -> activity -> classify -> summarize -> store -> relationships
+    lifecycle-actions.server.ts    archive/restore/delete/cleanup + audit log
+  src/cli/                         the `sessionforge` CLI itself, imports ../core directly — no daemon needed
+    bin.ts                         command dispatch
+    format.ts                      table/detail rendering
+    run.mjs                        cross-platform launcher package.json's "bin" points at (see "Platform support")
+  dist/                            compiled output (git-ignored) — the actual import target for library consumers,
+                                    built via `npm run build`; the CLI itself runs off raw TS via tsx, no build needed
 
-src/server/                        Paseo plugin RPC layer (thin wrapper over src/core)
+src/server/                        Paseo plugin RPC layer — depends on sessionforge-cli like any npm package
   session-contracts.shared.ts      Zod RPC contracts (session.list, .show, .search, .cleanup, .archive, .restore, .delete, .discover)
   session-handlers.server.ts       handler implementations + background rescan scheduling (ADAPTERS = Claude Code, Codex, Gemini CLI, OpenCode, Aider)
-
-src/cli/                           standalone CLI (`sessionforge`), imports src/core directly — no daemon needed
-  bin.ts                           command dispatch
-  format.ts                        table/detail rendering
-  run.mjs                          cross-platform launcher package.json's "bin" points at (see "Platform support")
 
 index.ts                    Paseo plugin entry point — pure plugin.handle()/addSurface()/addSidebarItem() registration only
                              (kept minimal: Paseo's Electron-main "evaluate" introspection pass calls this file's
@@ -46,41 +58,40 @@ main.client.tsx              session browser UI (sidebar panel): search/filter/a
                               sessions, per-session and per-provider file size
 ```
 
-## Why a plugin *and* a CLI
+## Why a plugin *and* a CLI — and why they're separate packages
 
 Paseo's plugin SDK (`@getpaseo/plugin`) has no mechanism for registering `paseo` subcommands — only RPC
 handlers and native UI surfaces (sidebar items, workspace panels, Command Center items). GOAL.md's
-`paseo session list`-style CLI examples aren't achievable literally inside a plugin. SessionForge instead
-ships both:
-
-- a Paseo plugin (`index.ts`) with an RPC layer and a session-browser UI panel, and
-- a standalone CLI (`src/cli/bin.ts`, run as `sessionforge <command>`) that imports `src/core` directly and
-  talks to the same local SQLite database — no daemon round-trip required.
-
-Both share one `SessionStore` on disk (`~/.sessionforge/sessionforge.db`), so `sessionforge archive <id>`
-from the terminal is reflected immediately in the Paseo UI panel and vice versa.
+`paseo session list`-style CLI examples aren't achievable literally inside a plugin, so a standalone CLI
+was always necessary. Splitting that CLI (plus the whole engine underneath it) into its own package,
+`packages/cli` / `sessionforge-cli`, takes that one step further: nothing in it imports `@getpaseo/*`,
+`react`, or `react-native`, so it's independently publishable and useful to anyone who never touches Paseo.
+The repo root — `index.ts`, `main.client.tsx`, `src/server/*` — is just the Paseo plugin, depending on
+`sessionforge-cli` the same way any other npm consumer would (a workspace-local dependency during
+development, a normal semver dependency once published).
 
 ## Platform support
 
 Requires Node.js 22.5+ on every platform (`node:sqlite`, used for persistence, is a Node built-in that only
 exists from that version onward — this is a Node-version prerequisite, not an OS-specific one).
 
-SessionForge targets Linux, macOS, and Windows. Nothing in `src/core` depends on a specific Linux distro or
-shells out to a distro's package manager — it's plain Node.js (`node:fs`, `node:path`, `node:os`,
-`node:sqlite`) plus a handful of `process.platform`-dispatched pieces:
+SessionForge targets Linux, macOS, and Windows. Nothing in `packages/cli/src/core` depends on a specific
+Linux distro or shells out to a distro's package manager — it's plain Node.js (`node:fs`, `node:path`,
+`node:os`, `node:sqlite`) plus a handful of `process.platform`-dispatched pieces:
 
 | Capability | Linux | macOS | Windows |
 |---|---|---|---|
 | Discover sessions (Claude Code / Codex / Gemini CLI) | `~/.claude`, `~/.codex`, `~/.gemini` (or their `*_CONFIG_DIR`/`*_HOME` env overrides) | same | same — `os.homedir()` + `node:path.join` resolve correctly on Windows too |
 | SQLite persistence (`~/.sessionforge/sessionforge.db`) | `node:sqlite` (Node 22+ built-in — no native addon to prebuild per OS/arch) | same | same |
 | Live-process activity signal (ACTIVE + HIGH confidence) | reads `/proc` directly | `ps` + `lsof` (both ship with macOS) | no equivalent without a native addon — falls back to timestamp-only RECENT/IDLE/STALE at MEDIUM confidence, same as GOAL.md §5 requires when there's no real evidence of a live process |
-| Delete → trash (`src/core/trash.server.ts`) | freedesktop.org XDG Trash (`~/.local/share/Trash`) — the trash GNOME/KDE file managers read | `~/.Trash` — the folder Finder's Trash reads | the real Recycle Bin, via PowerShell's `Microsoft.VisualBasic.FileIO.FileSystem::DeleteFile(..., SendToRecycleBin)` — no extra dependency |
+| Delete → trash (`packages/cli/src/core/trash.server.ts`) | freedesktop.org XDG Trash (`~/.local/share/Trash`) — the trash GNOME/KDE file managers read | `~/.Trash` — the folder Finder's Trash reads | the real Recycle Bin, via PowerShell's `Microsoft.VisualBasic.FileIO.FileSystem::DeleteFile(..., SendToRecycleBin)` — no extra dependency |
 | CLI (`sessionforge <command>`, or `npm run cli --`) | works | works | works — `package.json`'s `bin` points at a plain-JS launcher (`src/cli/run.mjs`), not `bin.ts` directly, since npm's Windows shim runs the bin target through plain `node`, which can't execute TypeScript on its own |
 
 "Linux" means any distro family — Debian/Ubuntu, RHEL/Fedora/Rocky/CentOS, Arch, etc. There's no
 distro-specific code path to diverge between them; the only OS-level branching anywhere in the codebase is
-`process.platform === "linux" | "darwin" | "win32"` in `activity.server.ts` and `trash.server.ts`, both
-covered by tests for all three branches (`activity.server.test.ts`, `trash.server.test.ts`) — the
+`process.platform === "linux" | "darwin" | "win32"` in `activity.server.ts` and `trash.server.ts` (both in
+`packages/cli/src/core/`), both covered by tests for all three branches (`activity.server.test.ts`,
+`trash.server.test.ts`) — the
 Linux branch is exercised for real (a real `/proc` scan against a real spawned process); macOS and Windows
 are exercised by mocking `ps`/`lsof`/PowerShell's `execFile` calls with realistic output, since this
 environment can't run real macOS or Windows to verify against.
@@ -107,37 +118,31 @@ environment can't run real macOS or Windows to verify against.
   the current JUNK candidates.
 - Every archive/restore/cleanup/delete action is recorded in an `audit_log` table (`sessionforge audit [id]`).
 - Once a session's lifecycle is explicitly set by a user action (`ARCHIVED`/`JUNK`), subsequent
-  `discover` rescans will not silently flip it back — see `STICKY_LIFECYCLES` in `src/core/discover.ts`.
+  `discover` rescans will not silently flip it back — see `STICKY_LIFECYCLES` in
+  `packages/cli/src/core/discover.server.ts`.
 
 ## Running the CLI
 
+Full CLI reference, library usage, and package-specific dev commands live in
+[`packages/cli/README.md`](packages/cli/README.md) — this is the short version:
+
 ```bash
-npm install
-npm run cli -- discover              # scan Claude Code, Codex, Gemini CLI, and OpenCode session storage and populate the local index
-npm run cli -- list                  # table view; add --json for machine-readable output
-npm run cli -- list --category junk --older-than 30d
-npm run cli -- show <session-id>
+npm install                          # from the repo root — sets up the workspace (both packages)
+npm run cli -- discover              # delegates to packages/cli; scans Claude Code/Codex/Gemini CLI/OpenCode
+npm run cli -- list --json           # add npm's --silent flag when piping, e.g. npm run --silent cli -- list --json | jq .
 npm run cli -- search "postgresql"
-npm run cli -- cleanup               # dry run (default) — nothing changes
 npm run cli -- cleanup --apply       # move current JUNK candidates to trash (still restorable)
-npm run cli -- archive <session-id> --reason "done"
-npm run cli -- restore <session-id>
-npm run cli -- audit [session-id]
 ```
 
-`npm run typecheck` runs `tsc --noEmit` over the whole project (plugin + CLI + core).
-`npm test` (or `npx vitest run`) runs the unit/integration suite: classifier heuristics, the Claude
-Code adapter's JSONL parsing (sidechains, malformed lines, `ai-title`), and an end-to-end
-discover -> classify -> cleanup/archive/restore -> rescan-doesn't-clobber-lifecycle flow against a
-temp `~/.claude`-shaped fixture and a temp SQLite db.
+Once published, `npm install -g sessionforge-cli` gives you the same `sessionforge` command with no
+Paseo repo checkout needed at all — see the package README for that path plus `AIDER_SEARCH_ROOTS` and
+library (`import ... from "sessionforge-cli"`) usage.
 
-For scripting/automation, use `--json` together with npm's `--silent` flag so npm's own
-`> sessionforge@0.0.0 cli` banner doesn't leak into the piped output, e.g.
-`npm run --silent cli -- list --json | jq .`. Alternatively call `npx tsx src/cli/bin.ts ...` directly.
-
-Aider sessions are opt-in: set `AIDER_SEARCH_ROOTS` to a colon-separated list of directories to search
-(e.g. `AIDER_SEARCH_ROOTS=~/Projects:~/Workspace npm run cli -- discover`) — with it unset, the Aider
-adapter discovers nothing rather than scanning your whole filesystem by default.
+`npm run typecheck` at the repo root runs both the plugin's own `tsc --noEmit` and `packages/cli`'s.
+`npm test` delegates to `packages/cli`'s vitest suite — classifier/adapter/store/relationship heuristics,
+FTS5 search, a real `/proc`-based activity-detection integration test on Linux, and an end-to-end
+discover -> classify -> cleanup/archive/restore -> rescan-doesn't-clobber-lifecycle flow against temp
+fixtures and a temp SQLite db.
 
 ## Installing the Paseo plugin
 
