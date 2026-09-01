@@ -50,31 +50,14 @@ jobs:
           node-version: "22.5.0"
           cache: npm
 
-      # npm's bundled version on 22.5.0 (10.8.2) intermittently dies with "Exit handler never called!" — a
-      # known upstream npm bug (npm/cli#4028 and friends), unrelated to anything in this repo — leaving
-      # node_modules broken and every later step failing with confusing "Cannot find name 'process'"
-      # typecheck errors. Its own exit code is unreliable when this happens (observed exiting nonzero AND
-      # exiting 0 across different runs), and a broken install can leave individual files like
-      # @types/node/package.json present while the rest of node_modules is still corrupt — so neither the
-      # exit code nor a single file-presence check is trustworthy. The literal "npm error" text is the one
-      # reliable signal npm always prints when this fires; on seeing it, wipe node_modules and retry from a
-      # clean state rather than layering a retry on top of whatever got corrupted.
-      - name: npm install (retry on npm's intermittent "Exit handler never called!" bug)
-        run: |
-          for attempt in 1 2 3; do
-            output=$(npm install 2>&1)
-            status=$?
-            echo "$output"
-            if [ "$status" -eq 0 ] && ! echo "$output" | grep -q "npm error"; then
-              exit 0
-            fi
-            echo "npm install failed (attempt $attempt) — known npm bug, cleaning node_modules and retrying..."
-            rm -rf node_modules packages/*/node_modules
-            sleep 5
-          done
-          echo "npm install did not succeed after 3 attempts" >&2
-          exit 1
-
+      # npm's version bundled with Node 22.5.0 (10.8.2) has a reproducible "Exit handler never called!"
+      # crash on install in this job every single run — confirmed deterministic, not flaky, by watching it
+      # fail identically 3 times in a row under a retry loop. A retry can't fix a deterministic bug, so
+      # upgrade npm itself instead: 10.9.9 (npm's own latest 10.x patch, `npm view npm@10.9.9 engines`)
+      # still only requires node >=20.5.0, so it runs fine on the 22.5.0 floor this job exists to test —
+      # only the npm *tool* moves, not the Node *runtime* floor being verified.
+      - run: npm install -g npm@10.9.9
+      - run: npm install
       - run: npm run build
       - run: npm run typecheck
       - run: npm test

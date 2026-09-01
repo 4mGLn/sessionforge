@@ -31,28 +31,11 @@ jobs:
           node-version: "22.5"
           cache: npm
 
-      # See ci.yml's minimum-node-version job for the full explanation: npm's bundled version around Node
-      # 22.5 can intermittently die with "Exit handler never called!" while its exit code and even
-      # individual file presence in node_modules stay unreliable — the "npm error" text is the one signal
-      # that always shows up, so detect that and do a clean reinstall. shell: bash is explicit since
-      # windows-latest's default `run:` shell is PowerShell, not bash.
-      - name: npm install (retry on npm's intermittent "Exit handler never called!" bug)
-        shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            output=$(npm install 2>&1)
-            status=$?
-            echo "$output"
-            if [ "$status" -eq 0 ] && ! echo "$output" | grep -q "npm error"; then
-              exit 0
-            fi
-            echo "npm install failed (attempt $attempt) — known npm bug, cleaning node_modules and retrying..."
-            rm -rf node_modules packages/*/node_modules
-            sleep 5
-          done
-          echo "npm install did not succeed after 3 attempts" >&2
-          exit 1
-
+      # See ci.yml's minimum-node-version job: npm's version bundled with Node 22.5 (10.8.2) has a
+      # reproducible "Exit handler never called!" crash on install — confirmed deterministic there, not
+      # flaky. 10.9.9 (npm's own latest 10.x patch) fixes it and still only needs node >=20.5.0.
+      - run: npm install -g npm@10.9.9
+      - run: npm install
       - run: npm run build:binary --workspace packages/cli
 
       - uses: actions/upload-artifact@v4
