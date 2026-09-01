@@ -1,7 +1,7 @@
 import type { PluginSurfaceProps } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Image, Modal, Pressable, ScrollView, SectionList, Text, TextInput, View } from "react-native";
+import { FlatList, Image, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import {
   archiveSessionRpc,
   cleanupSessionsRpc,
@@ -115,6 +115,33 @@ function formatDateTime(iso: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Bulk actions often fail for the same underlying reason across many items at once (e.g. every Aider/
+ * OpenCode session in a selection rejects delete with the identical "no delete capability" error) — joining
+ * each failure into its own "label — reason" entry produces a wall of literal repetition, worse the more
+ * items share both an identical reason AND an identical label (e.g. several sessions all titled "hi").
+ * Grouping by reason and de-duplicating labels within each group collapses that down to one line per
+ * distinct cause.
+ */
+function summarizeFailures(failures: ReadonlyArray<{ label: string; reason: string }>): string {
+  const labelsByReason = new Map<string, string[]>();
+  for (const failure of failures) {
+    const bucket = labelsByReason.get(failure.reason);
+    if (bucket) bucket.push(failure.label);
+    else labelsByReason.set(failure.reason, [failure.label]);
+  }
+
+  return Array.from(labelsByReason.entries())
+    .map(([reason, labels]) => {
+      const uniqueLabels = Array.from(new Set(labels));
+      const shown = uniqueLabels.slice(0, 3);
+      const labelList = shown.length < uniqueLabels.length ? `${shown.join(", ")}, +${uniqueLabels.length - shown.length} more` : shown.join(", ");
+      const count = labels.length === 1 ? "1 session" : `${labels.length} sessions`;
+      return `${count} (${labelList}) — ${reason}`;
+    })
+    .join("; ");
 }
 
 function formatBytes(bytes: number): string {
@@ -613,18 +640,18 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
     setActionError(null);
     setBulkArchiving(true);
     try {
-      const failures: string[] = [];
+      const failures: Array<{ label: string; reason: string }> = [];
       for (const id of selected) {
         try {
           await archiveSession({ id });
         } catch (error) {
-          failures.push(`"${sessionLabel(id)}" — ${errorMessage(error)}`);
+          failures.push({ label: sessionLabel(id), reason: errorMessage(error) });
         }
       }
       clearSelection();
       await refresh();
       if (failures.length > 0) {
-        setActionError(`Currently impossible to archive ${failures.length} session(s): ${failures.join("; ")}`);
+        setActionError(`Currently impossible to archive: ${summarizeFailures(failures)}`);
       }
     } finally {
       setBulkArchiving(false);
@@ -649,8 +676,8 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
       clearSelection();
       await refresh();
       if (result.failed.length > 0) {
-        const failures = result.failed.map((f) => `"${sessionLabel(f.id)}" — ${f.error}`);
-        setActionError(`Currently impossible to delete ${failures.length} session(s): ${failures.join("; ")}`);
+        const failures = result.failed.map((f) => ({ label: sessionLabel(f.id), reason: f.error }));
+        setActionError(`Currently impossible to delete: ${summarizeFailures(failures)}`);
       }
     } finally {
       setBulkDeleting(false);
@@ -696,8 +723,16 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
    * Cross-agent timeline (GOAL.md §14): groups the same visibleSessions by the day each one was created,
    * days newest-first, sessions within a day oldest-first (reads top-to-bottom as the day's story) — so
    * work from every agent on the same day shows up together instead of siloed by agent tab.
+   *
+   * Flattened into one row array (day-header rows interleaved with session rows) and rendered through the
+   * same FlatList the List view already uses, rather than SectionList — this host has a history of
+   * react-native-web primitives behaving unreliably (PanResponder, for one), and FlatList is the one
+   * proven to work correctly here, so reusing it sidesteps that risk entirely instead of hoping
+   * SectionList (a different component, likely built on a different internal path) works the same way.
    */
-  const timelineSections = useMemo(() => {
+  type TimelineRow = { kind: "day"; key: string; day: string } | { kind: "session"; key: string; session: SessionDto };
+
+  const timelineRows = useMemo((): TimelineRow[] => {
     const byDay = new Map<string, SessionDto[]>();
     for (const session of visibleSessions) {
       const day = session.createdAt.slice(0, 10);
@@ -705,12 +740,15 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
       if (bucket) bucket.push(session);
       else byDay.set(day, [session]);
     }
-    return Array.from(byDay.entries())
-      .sort(([a], [b]) => (a < b ? 1 : -1))
-      .map(([day, daySessions]) => ({
-        title: day,
-        data: [...daySessions].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0)),
-      }));
+    const days = Array.from(byDay.entries()).sort(([a], [b]) => (a < b ? 1 : -1));
+
+    const rows: TimelineRow[] = [];
+    for (const [day, daySessions] of days) {
+      rows.push({ kind: "day", key: `day:${day}`, day });
+      const sorted = [...daySessions].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+      for (const session of sorted) rows.push({ kind: "session", key: session.id, session });
+    }
+    return rows;
   }, [visibleSessions]);
 
   /** Every relationship touching a given session, from either side — powers the timeline's duplicate/superseded badges. */
@@ -1014,7 +1052,12 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
               <Text style={styles.tabText(agentTab === tab.key)}>{tab.label}</Text>
             </Pressable>
           ))}
-          <View style={{ flex: 1 }} />
+        </View>
+        {/* Its own row, not sharing one with agentTabs — that row wraps (flexWrap) once there are enough
+            agent tabs to overflow a narrow sidebar, and a flex:1 spacer only pushes siblings to the end of
+            its own wrapped line, not the whole row, so this toggle could land somewhere unpredictable
+            (or effectively invisible) once tabs wrap onto multiple lines. */}
+        <View style={styles.toolbarRow}>
           <Pressable style={styles.chip(viewMode === "list")} onPress={() => setViewMode("list")}>
             <Text style={styles.chipText(viewMode === "list")}>List</Text>
           </Pressable>
@@ -1081,16 +1124,20 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
       {!loading && visibleSessions.length === 0 ? (
         <Text style={styles.empty}>No sessions found. Try Rescan.</Text>
       ) : viewMode === "timeline" ? (
-        <SectionList
-          sections={timelineSections}
-          keyExtractor={(item) => item.id}
+        <FlatList
+          data={timelineRows}
+          keyExtractor={(row) => row.key}
           contentContainerStyle={styles.listContent}
-          renderSectionHeader={({ section }) => (
-            <View style={styles.timelineDayHeader}>
-              <Text style={styles.timelineDayHeaderText}>{formatDate(`${section.title}T00:00:00`)}</Text>
-            </View>
-          )}
-          renderItem={({ item }) => {
+          renderItem={({ item: row }) => {
+            if (row.kind === "day") {
+              return (
+                <View style={styles.timelineDayHeader}>
+                  <Text style={styles.timelineDayHeaderText}>{formatDate(`${row.day}T00:00:00`)}</Text>
+                </View>
+              );
+            }
+
+            const item = row.session;
             const itemRelationships = relationshipsBySessionId.get(item.id);
             const relationshipLabel = !itemRelationships
               ? null
