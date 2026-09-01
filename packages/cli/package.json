@@ -47,6 +47,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "build:binary": "node scripts/build-binary.mjs",
     "typecheck": "tsc --noEmit",
     "cli": "tsx ./src/cli/bin.ts",
     "test": "vitest run"
@@ -56,6 +57,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
+    "esbuild": "^0.25.0",
+    "postject": "^1.0.0-alpha.6",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   }

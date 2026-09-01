@@ -22,9 +22,11 @@ jobs:
           cache: npm
 
       - run: npm install
+      # Same ordering as ci.yml: dist/ (git-ignored) must exist before typecheck can resolve the root
+      # package's "sessionforge-cli" import.
+      - run: npm run build
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
 
       - name: Publish packages/cli to npm
         run: npm publish --workspace packages/cli --access public --provenance

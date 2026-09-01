@@ -1,0 +1,67 @@
+name: Release binaries
+
+# Manual trigger only, same safety posture as publish.yml — never runs on a push, so a release only
+# happens when someone deliberately clicks "Run workflow". Builds a standalone sessionforge binary per
+# platform (Node's Single Executable Application feature — no Node.js needed on the machine that runs it)
+# and attaches them to a GitHub Release matching packages/cli/package.json's current version.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # SEA binaries aren't cross-compilable — each has to be built natively on its own target OS/arch.
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-13 # Intel
+            target: x86_64-apple-darwin
+          - os: macos-14 # Apple Silicon
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.5"
+          cache: npm
+
+      - run: npm install
+      - run: npm run build:binary --workspace packages/cli
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sessionforge-${{ matrix.target }}
+          path: packages/cli/build/sessionforge-${{ matrix.target }}*
+          if-no-files-found: error
+
+  release:
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Read version from packages/cli/package.json
+        id: version
+        run: echo "version=$(node -p "require('./packages/cli/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Create release and upload binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" \
+            --title "sessionforge-cli v$VERSION" \
+            --generate-notes \
+            artifacts/*/*

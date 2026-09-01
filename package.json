@@ -22,7 +22,8 @@
     "typecheck": "tsc --noEmit && npm run typecheck --workspace packages/cli",
     "build": "npm run build --workspace packages/cli",
     "test": "npm test --workspace packages/cli",
-    "cli": "npm run cli --workspace packages/cli --"
+    "cli": "npm run cli --workspace packages/cli --",
+    "postinstall": "npm run build --workspace packages/cli"
   },
   "dependencies": {
     "sessionforge-cli": "*"
