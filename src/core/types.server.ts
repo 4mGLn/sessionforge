@@ -87,6 +87,22 @@ export interface AgentAdapter {
   delete?(storagePath: string): Promise<void>;
 }
 
+export type RelationshipKind = "DUPLICATE" | "SUPERSEDED";
+
+/**
+ * A detected cross-session relationship (GOAL.md §7/§8). Informational only — detecting a relationship
+ * never mutates either session's own `lifecycle` on its own; recomputed fresh on every discovery pass,
+ * same as classification.
+ */
+export interface SessionRelationship {
+  sessionId: string;
+  relatedSessionId: string;
+  kind: RelationshipKind;
+  confidence: number;
+  reason: string;
+  detectedAt: string;
+}
+
 export interface AuditEntry {
   id: number;
   sessionId: string;

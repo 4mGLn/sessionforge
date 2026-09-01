@@ -1,7 +1,7 @@
 import type { PluginSurfaceProps } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Image, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { FlatList, Image, Modal, Pressable, ScrollView, SectionList, Text, TextInput, View } from "react-native";
 import {
   archiveSessionRpc,
   cleanupSessionsRpc,
@@ -9,11 +9,14 @@ import {
   discoverSessionsRpc,
   listSessionsRpc,
   restoreSessionRpc,
+  SessionRelationshipSchema,
   SessionSchema,
+  showSessionRpc,
 } from "./src/server/session-contracts.shared";
 import type { z } from "zod";
 
 type SessionDto = z.infer<typeof SessionSchema>;
+type RelationshipDto = z.infer<typeof SessionRelationshipSchema>;
 type Tone = "neutral" | "danger" | "accent";
 
 const CATEGORY_FILTERS = ["ALL", "KEEP", "ARCHIVE", "JUNK"] as const;
@@ -132,13 +135,14 @@ function recommendTone(category: NonNullable<SessionDto["classification"]>["cate
 
 interface SessionPreviewModalProps {
   session: SessionDto;
+  relationships: readonly RelationshipDto[];
   theme: PluginSurfaceProps["theme"];
   onClose: () => void;
   onArchive: (id: string) => void;
   onRestore: (id: string) => void;
 }
 
-function SessionPreviewModal({ session, theme, onClose, onArchive, onRestore }: SessionPreviewModalProps) {
+function SessionPreviewModal({ session, relationships, theme, onClose, onArchive, onRestore }: SessionPreviewModalProps) {
   const styles = useMemo(
     () => ({
       backdrop: {
@@ -280,6 +284,13 @@ function SessionPreviewModal({ session, theme, onClose, onArchive, onRestore }: 
             ) : null}
           </View>
 
+          {session.summary ? (
+            <>
+              <Text style={styles.label}>Summary</Text>
+              <Text style={styles.value}>{session.summary}</Text>
+            </>
+          ) : null}
+
           <Text style={styles.label}>Project</Text>
           <Text style={styles.value}>{session.project}</Text>
           <Text style={styles.value} numberOfLines={1}>
@@ -313,6 +324,29 @@ function SessionPreviewModal({ session, theme, onClose, onArchive, onRestore }: 
                   • {line}
                 </Text>
               ))}
+            </>
+          ) : null}
+
+          {relationships.length > 0 ? (
+            <>
+              <Text style={styles.label}>Related sessions</Text>
+              {relationships.map((rel) => {
+                const otherId = rel.sessionId === session.id ? rel.relatedSessionId : rel.sessionId;
+                const direction =
+                  rel.kind === "SUPERSEDED"
+                    ? rel.sessionId === session.id
+                      ? "Superseded by"
+                      : "Supersedes"
+                    : "Possible duplicate of";
+                return (
+                  <View key={`${rel.sessionId}:${rel.relatedSessionId}`} style={{ marginBottom: SPACING[1] }}>
+                    <Text style={styles.value}>
+                      {direction} {otherId} ({Math.round(rel.confidence * 100)}% confidence)
+                    </Text>
+                    <Text style={styles.metaText}>{rel.reason}</Text>
+                  </View>
+                );
+              })}
             </>
           ) : null}
 
@@ -419,11 +453,14 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
   const restoreSession = useRpc(restoreSessionRpc);
   const deleteSessionsRpcCall = useRpc(deleteSessionsRpc);
   const discoverSessions = useRpc(discoverSessionsRpc);
+  const showSession = useRpc(showSessionRpc);
 
   const [sessions, setSessions] = useState<SessionDto[]>([]);
+  const [relationships, setRelationships] = useState<RelationshipDto[]>([]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<CategoryFilter>("ALL");
   const [agentTab, setAgentTab] = useState<string>(AGENT_TAB_ALL);
+  const [viewMode, setViewMode] = useState<"list" | "timeline">("list");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -433,6 +470,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
   const [bulkArchiving, setBulkArchiving] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [previewSession, setPreviewSession] = useState<SessionDto | null>(null);
+  const [previewRelationships, setPreviewRelationships] = useState<RelationshipDto[]>([]);
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; confirmLabel: string; run: () => void } | null>(
     null,
   );
@@ -462,6 +500,24 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
     };
   }, []);
 
+  // Relationships aren't in the list payload (kept minimal), so fetch them separately whenever the
+  // preview opens on a different session. Keyed on the id, not the object reference, so a refresh that
+  // replaces `sessions` with new object identities doesn't trigger a redundant re-fetch.
+  const previewSessionId = previewSession?.id ?? null;
+  useEffect(() => {
+    if (!previewSessionId) {
+      setPreviewRelationships([]);
+      return;
+    }
+    let cancelled = false;
+    showSession({ id: previewSessionId }).then((result) => {
+      if (!cancelled) setPreviewRelationships(result.relationships);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewSessionId, showSession]);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -469,6 +525,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         category === "ALL" ? { query: query || undefined } : { query: query || undefined, category },
       );
       setSessions(result.sessions);
+      setRelationships(result.relationships);
     } finally {
       setLoading(false);
     }
@@ -634,6 +691,42 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
     () => (agentTab === AGENT_TAB_ALL ? sessions : sessions.filter((s) => s.agent === agentTab)),
     [sessions, agentTab],
   );
+
+  /**
+   * Cross-agent timeline (GOAL.md §14): groups the same visibleSessions by the day each one was created,
+   * days newest-first, sessions within a day oldest-first (reads top-to-bottom as the day's story) — so
+   * work from every agent on the same day shows up together instead of siloed by agent tab.
+   */
+  const timelineSections = useMemo(() => {
+    const byDay = new Map<string, SessionDto[]>();
+    for (const session of visibleSessions) {
+      const day = session.createdAt.slice(0, 10);
+      const bucket = byDay.get(day);
+      if (bucket) bucket.push(session);
+      else byDay.set(day, [session]);
+    }
+    return Array.from(byDay.entries())
+      .sort(([a], [b]) => (a < b ? 1 : -1))
+      .map(([day, daySessions]) => ({
+        title: day,
+        data: [...daySessions].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0)),
+      }));
+  }, [visibleSessions]);
+
+  /** Every relationship touching a given session, from either side — powers the timeline's duplicate/superseded badges. */
+  const relationshipsBySessionId = useMemo(() => {
+    const map = new Map<string, RelationshipDto[]>();
+    const add = (id: string, rel: RelationshipDto) => {
+      const bucket = map.get(id);
+      if (bucket) bucket.push(rel);
+      else map.set(id, [rel]);
+    };
+    for (const rel of relationships) {
+      add(rel.sessionId, rel);
+      add(rel.relatedSessionId, rel);
+    }
+    return map;
+  }, [relationships]);
 
   /**
    * Plain click toggles one row and becomes the new anchor. Shift-click extends the selection to every
@@ -869,6 +962,24 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         color: tone === "danger" ? theme.colors.statusDanger : tone === "accent" ? theme.colors.accent : theme.colors.foregroundMuted,
       }),
       empty: { color: theme.colors.foregroundMuted, padding: SPACING[6], textAlign: "center" as const, fontSize: FONT_SIZE.base },
+      timelineDayHeader: {
+        paddingHorizontal: SPACING[3],
+        paddingVertical: SPACING[2],
+        backgroundColor: theme.colors.surface0,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.colors.foregroundMuted,
+      },
+      timelineDayHeaderText: { color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.sm, fontWeight: "700" as const },
+      timelineEntry: {
+        flexDirection: "row" as const,
+        alignItems: "flex-start" as const,
+        gap: SPACING[3],
+        paddingVertical: SPACING[2],
+        paddingHorizontal: SPACING[3],
+        borderRadius: RADIUS.lg,
+      },
+      timelineEntryMeta: { color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.sm },
+      timelineEntryNote: { color: theme.colors.foreground, fontSize: FONT_SIZE.base, opacity: 0.86, marginTop: 2 },
     }),
     [theme, layout.compact],
   );
@@ -903,6 +1014,13 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
               <Text style={styles.tabText(agentTab === tab.key)}>{tab.label}</Text>
             </Pressable>
           ))}
+          <View style={{ flex: 1 }} />
+          <Pressable style={styles.chip(viewMode === "list")} onPress={() => setViewMode("list")}>
+            <Text style={styles.chipText(viewMode === "list")}>List</Text>
+          </Pressable>
+          <Pressable style={styles.chip(viewMode === "timeline")} onPress={() => setViewMode("timeline")}>
+            <Text style={styles.chipText(viewMode === "timeline")}>Timeline</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -962,6 +1080,52 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
 
       {!loading && visibleSessions.length === 0 ? (
         <Text style={styles.empty}>No sessions found. Try Rescan.</Text>
+      ) : viewMode === "timeline" ? (
+        <SectionList
+          sections={timelineSections}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          renderSectionHeader={({ section }) => (
+            <View style={styles.timelineDayHeader}>
+              <Text style={styles.timelineDayHeaderText}>{formatDate(`${section.title}T00:00:00`)}</Text>
+            </View>
+          )}
+          renderItem={({ item }) => {
+            const itemRelationships = relationshipsBySessionId.get(item.id);
+            const relationshipLabel = !itemRelationships
+              ? null
+              : itemRelationships.length === 1
+                ? itemRelationships[0].kind
+                : `${itemRelationships.length} related`;
+
+            return (
+              <Pressable style={styles.timelineEntry} onPress={() => setPreviewSession(item)}>
+                <View style={styles.agentBadge(item.agent)}>
+                  {AGENT_ICON_URI[item.agent] ? (
+                    <Image source={{ uri: AGENT_ICON_URI[item.agent] }} style={styles.agentBadgeIcon} resizeMode="contain" />
+                  ) : (
+                    <Text style={styles.agentBadgeText}>{agentInitials(item.agent)}</Text>
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING[2] }}>
+                    <Text style={styles.timelineEntryMeta}>
+                      {agentLabel(item.agent)} · {item.project} · {formatRelative(item.createdAt)}
+                    </Text>
+                    {relationshipLabel ? (
+                      <View style={styles.badge("neutral")}>
+                        <Text style={styles.badgeText("neutral")}>{relationshipLabel}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={styles.timelineEntryNote} numberOfLines={2}>
+                    {item.summary ?? item.title ?? item.firstUserMessage ?? "(untitled session)"}
+                  </Text>
+                </View>
+              </Pressable>
+            );
+          }}
+        />
       ) : (
         <FlatList
           data={visibleSessions}
@@ -1087,6 +1251,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         {previewSession ? (
           <SessionPreviewModal
             session={previewSession}
+            relationships={previewRelationships}
             theme={theme}
             onClose={() => setPreviewSession(null)}
             onArchive={(id) => {

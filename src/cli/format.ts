@@ -1,4 +1,4 @@
-import type { Session } from "../core/types.server.js";
+import type { Session, SessionRelationship } from "../core/types.server.js";
 
 function pad(value: string, width: number): string {
   return value.length >= width ? `${value.slice(0, width - 1)}…` : value.padEnd(width);
@@ -28,7 +28,7 @@ export function formatSessionTable(sessions: readonly Session[]): string {
   return [headerLine, separator, ...rows].join("\n");
 }
 
-export function formatSessionDetail(session: Session): string {
+export function formatSessionDetail(session: Session, relationships: readonly SessionRelationship[] = []): string {
   const lines = [
     "Session",
     "-".repeat(42),
@@ -45,6 +45,8 @@ export function formatSessionDetail(session: Session): string {
     `Lifecycle:     ${session.lifecycle}`,
     "",
     `Title:         ${session.title ?? "-"}`,
+    "",
+    `Summary:       ${session.summary ?? "-"}`,
     "",
     "Activity:",
     `  ${session.messageCount} messages`,
@@ -66,6 +68,16 @@ export function formatSessionDetail(session: Session): string {
 
   if (session.archivedAt) {
     lines.push("", `Archived at: ${formatDate(session.archivedAt)}`);
+  }
+
+  if (relationships.length > 0) {
+    lines.push("", "Related sessions:");
+    for (const rel of relationships) {
+      const otherId = rel.sessionId === session.id ? rel.relatedSessionId : rel.sessionId;
+      const direction =
+        rel.kind === "SUPERSEDED" ? (rel.sessionId === session.id ? "superseded by" : "supersedes") : "possible duplicate of";
+      lines.push(`  ${direction} ${otherId} (${Math.round(rel.confidence * 100)}% confidence)`, `    ${rel.reason}`);
+    }
   }
 
   return lines.join("\n");

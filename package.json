@@ -3,8 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "bin": {
-    "sessionforge": "./src/cli/bin.ts"
+    "sessionforge": "./src/cli/run.mjs"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

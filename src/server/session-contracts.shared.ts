@@ -52,6 +52,17 @@ export const SessionSchema = z.object({
   archivedAt: z.string().nullable(),
 });
 
+export const RelationshipKindSchema = z.enum(["DUPLICATE", "SUPERSEDED"]);
+
+export const SessionRelationshipSchema = z.object({
+  sessionId: z.string(),
+  relatedSessionId: z.string(),
+  kind: RelationshipKindSchema,
+  confidence: z.number(),
+  reason: z.string(),
+  detectedAt: z.string(),
+});
+
 export const SessionFilterSchema = z.object({
   agent: AgentIdSchema.optional(),
   project: z.string().optional(),
@@ -65,13 +76,13 @@ export const SessionFilterSchema = z.object({
 export const listSessionsRpc = defineRpc({
   name: "session.list",
   input: SessionFilterSchema,
-  output: z.object({ sessions: z.array(SessionSchema) }),
+  output: z.object({ sessions: z.array(SessionSchema), relationships: z.array(SessionRelationshipSchema) }),
 });
 
 export const showSessionRpc = defineRpc({
   name: "session.show",
   input: z.object({ id: z.string() }),
-  output: z.object({ session: SessionSchema.nullable() }),
+  output: z.object({ session: SessionSchema.nullable(), relationships: z.array(SessionRelationshipSchema) }),
 });
 
 export const searchSessionsRpc = defineRpc({

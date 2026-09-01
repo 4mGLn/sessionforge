@@ -1,14 +1,16 @@
 #!/usr/bin/env -S npx tsx
+import { AiderAdapter } from "../core/aider-adapter.server.js";
 import { ClaudeCodeAdapter } from "../core/claude-adapter.server.js";
 import { CodexAdapter } from "../core/codex-adapter.server.js";
 import { runDiscovery } from "../core/discover.server.js";
 import { GeminiCliAdapter } from "../core/gemini-adapter.server.js";
 import { archiveSession, restoreSession, runCleanup, SessionNotFoundError } from "../core/lifecycle-actions.server.js";
+import { OpenCodeAdapter } from "../core/opencode-adapter.server.js";
 import { SessionStore } from "../core/store.server.js";
 import type { AgentId, ClassificationCategory, SessionLifecycle, SessionStatus } from "../core/types.server.js";
 import { formatSessionDetail, formatSessionTable, parseOlderThan } from "./format.js";
 
-const ADAPTERS = [new ClaudeCodeAdapter(), new CodexAdapter(), new GeminiCliAdapter()];
+const ADAPTERS = [new ClaudeCodeAdapter(), new CodexAdapter(), new GeminiCliAdapter(), new OpenCodeAdapter(), new AiderAdapter()];
 const ACTOR = "cli";
 
 interface ParsedArgs {
@@ -98,8 +100,9 @@ async function cmdShow(args: ParsedArgs): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    if (args.flags.get("json")) printJson(session);
-    else console.log(formatSessionDetail(session));
+    const relationships = store.listRelationships(id);
+    if (args.flags.get("json")) printJson({ ...session, relationships });
+    else console.log(formatSessionDetail(session, relationships));
   } finally {
     store.close();
   }

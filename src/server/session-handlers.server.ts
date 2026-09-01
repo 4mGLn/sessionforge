@@ -1,13 +1,15 @@
+import { AiderAdapter } from "../core/aider-adapter.server.js";
 import { ClaudeCodeAdapter } from "../core/claude-adapter.server.js";
 import { CodexAdapter } from "../core/codex-adapter.server.js";
 import { runDiscovery } from "../core/discover.server.js";
 import { GeminiCliAdapter } from "../core/gemini-adapter.server.js";
 import { archiveSession, deleteSessions, restoreSession, runCleanup } from "../core/lifecycle-actions.server.js";
+import { OpenCodeAdapter } from "../core/opencode-adapter.server.js";
 import { SessionStore } from "../core/store.server.js";
 import type { SessionFilter } from "../core/types.server.js";
 
 const ACTOR = "paseo-plugin";
-const ADAPTERS = [new ClaudeCodeAdapter(), new CodexAdapter(), new GeminiCliAdapter()];
+const ADAPTERS = [new ClaudeCodeAdapter(), new CodexAdapter(), new GeminiCliAdapter(), new OpenCodeAdapter(), new AiderAdapter()];
 const DISCOVERY_INTERVAL_MS = 5 * 60 * 1000;
 
 let storeSingleton: SessionStore | null = null;
@@ -40,11 +42,11 @@ export function stopBackgroundDiscovery(): void {
 }
 
 export async function listSessions(input: SessionFilter) {
-  return { sessions: store().listSessions(input) };
+  return { sessions: store().listSessions(input), relationships: store().listAllRelationships() };
 }
 
 export async function showSession(input: { id: string }) {
-  return { session: store().getSession(input.id) };
+  return { session: store().getSession(input.id), relationships: store().listRelationships(input.id) };
 }
 
 export async function searchSessions(input: { query: string }) {

@@ -1,6 +1,8 @@
 import type { AgentAdapter, ClassificationCategory, DiscoveredSession, Session, SessionLifecycle } from "./types.server.js";
 import { detectActivity } from "./activity.server.js";
 import { classifySession } from "./classify.server.js";
+import { detectRelationships } from "./relationships.server.js";
+import { summarizeSession } from "./summarize.server.js";
 import { SessionStore } from "./store.server.js";
 
 /** Lifecycle values the user (or a cleanup action) has explicitly set. Discovery scans must not silently overwrite these. */
@@ -30,6 +32,12 @@ async function toSession(discovered: DiscoveredSession, existing: Session | null
   const preserveLifecycle = existing !== null && STICKY_LIFECYCLES.has(existing.lifecycle);
   const lifecycle = preserveLifecycle ? existing!.lifecycle : defaultLifecycle(activity.status, classification.category);
   const archivedAt = preserveLifecycle ? existing!.archivedAt : null;
+  const summary = summarizeSession({
+    title: discovered.title,
+    firstUserMessage: discovered.firstUserMessage,
+    userMessageCount: discovered.userMessageCount,
+    classification,
+  });
 
   return {
     id: sessionId(discovered),
@@ -47,7 +55,7 @@ async function toSession(discovered: DiscoveredSession, existing: Session | null
     activityConfidence: activity.confidence,
     lifecycle,
     title: discovered.title,
-    summary: existing?.summary ?? null,
+    summary,
     firstUserMessage: discovered.firstUserMessage,
     messageCount: discovered.messageCount,
     userMessageCount: discovered.userMessageCount,
@@ -84,6 +92,10 @@ export async function runDiscovery(store: SessionStore, adapters: readonly Agent
       else created += 1;
     }
   }
+
+  // Relationships are cross-session (GOAL.md §8), so they can only be computed after every adapter's
+  // sessions are upserted — recomputed wholesale each pass, same as classification is.
+  store.replaceRelationships(detectRelationships(store.listSessions({})));
 
   return { scanned, created, updated };
 }
