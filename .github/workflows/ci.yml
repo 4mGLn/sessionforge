@@ -52,21 +52,27 @@ jobs:
 
       # npm's bundled version on 22.5.0 (10.8.2) intermittently dies with "Exit handler never called!" — a
       # known upstream npm bug (npm/cli#4028 and friends), unrelated to anything in this repo — leaving
-      # node_modules half-installed (missing @types/node, hoisted to the workspace root) and every later
-      # step failing with confusing "Cannot find name 'process'" typecheck errors. Worse, npm's own exit
-      # code is unreliable when this happens (it can print the error yet still exit 0), so retrying on a
-      # nonzero exit code alone doesn't catch it — check the actual on-disk result instead.
-      - name: npm install (retry — npm's exit code alone can't be trusted when this bug fires)
+      # node_modules broken and every later step failing with confusing "Cannot find name 'process'"
+      # typecheck errors. Its own exit code is unreliable when this happens (observed exiting nonzero AND
+      # exiting 0 across different runs), and a broken install can leave individual files like
+      # @types/node/package.json present while the rest of node_modules is still corrupt — so neither the
+      # exit code nor a single file-presence check is trustworthy. The literal "npm error" text is the one
+      # reliable signal npm always prints when this fires; on seeing it, wipe node_modules and retry from a
+      # clean state rather than layering a retry on top of whatever got corrupted.
+      - name: npm install (retry on npm's intermittent "Exit handler never called!" bug)
         run: |
           for attempt in 1 2 3; do
-            npm install || true
-            if [ -f node_modules/@types/node/package.json ]; then
+            output=$(npm install 2>&1)
+            status=$?
+            echo "$output"
+            if [ "$status" -eq 0 ] && ! echo "$output" | grep -q "npm error"; then
               exit 0
             fi
-            echo "node_modules incomplete after npm install (attempt $attempt) — known npm bug, retrying..."
+            echo "npm install failed (attempt $attempt) — known npm bug, cleaning node_modules and retrying..."
+            rm -rf node_modules packages/*/node_modules
             sleep 5
           done
-          echo "npm install did not produce a complete node_modules after 3 attempts" >&2
+          echo "npm install did not succeed after 3 attempts" >&2
           exit 1
 
       - run: npm run build
