@@ -33,28 +33,33 @@ describe("detectActivity", () => {
     setPlatform(originalPlatform);
   });
 
-  it("reports ACTIVE/HIGH on linux via a real /proc scan matching a live claude-like process's cwd", async () => {
-    setPlatform("linux");
-    const { detectActivity } = await import("./activity.server.js");
+  // Faking process.platform doesn't fake the underlying filesystem — this needs a real /proc, so it can
+  // only run where the actual OS is Linux, not merely where process.platform is set to "linux".
+  it.runIf(originalPlatform === "linux")(
+    "reports ACTIVE/HIGH on linux via a real /proc scan matching a live claude-like process's cwd",
+    async () => {
+      setPlatform("linux");
+      const { detectActivity } = await import("./activity.server.js");
 
-    const workspace = await realpath(await mkdtemp(join(tmpdir(), "sessionforge-activity-")));
-    // The literal word "claude" just needs to appear somewhere in argv — embedding it in the -e script
-    // string itself (rather than as a separate --claude-flavored arg) sidesteps node's own CLI arg
-    // parser, which treats a trailing "--xyz"-shaped argument as an (unrecognized) node flag and exits
-    // immediately rather than passing it through to the script.
-    const child = spawn("node", ["-e", "/* claude */ setTimeout(() => {}, 10000)"], { cwd: workspace, stdio: "ignore" });
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const workspace = await realpath(await mkdtemp(join(tmpdir(), "sessionforge-activity-")));
+      // The literal word "claude" just needs to appear somewhere in argv — embedding it in the -e script
+      // string itself (rather than as a separate --claude-flavored arg) sidesteps node's own CLI arg
+      // parser, which treats a trailing "--xyz"-shaped argument as an (unrecognized) node flag and exits
+      // immediately rather than passing it through to the script.
+      const child = spawn("node", ["-e", "/* claude */ setTimeout(() => {}, 10000)"], { cwd: workspace, stdio: "ignore" });
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
-      const result = await detectActivity({ workspace, lastActivityAt: new Date().toISOString() });
+        const result = await detectActivity({ workspace, lastActivityAt: new Date().toISOString() });
 
-      expect(result.status).toBe("ACTIVE");
-      expect(result.confidence).toBe("HIGH");
-    } finally {
-      child.kill();
-      await rm(workspace, { recursive: true, force: true });
-    }
-  });
+        expect(result.status).toBe("ACTIVE");
+        expect(result.confidence).toBe("HIGH");
+      } finally {
+        child.kill();
+        await rm(workspace, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("falls back to timestamp heuristics on linux when no live process matches the workspace", async () => {
     setPlatform("linux");

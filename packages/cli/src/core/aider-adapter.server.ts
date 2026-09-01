@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, delimiter, dirname, join } from "node:path";
 import type { AgentAdapter, DiscoveredSession } from "./types.server.js";
 import { capFirstMessage } from "./text-utils.server.js";
 
@@ -18,14 +18,16 @@ const USER_TURN_PATTERN = /^#### (.*)$/;
  * (`~/.aider/analytics.json`, `installs.json`) that tracks which directories that is. So this adapter
  * can't just read one well-known path; it has to search, and searching the whole home directory by
  * default would be slow and surprising for the (likely large) majority of users who don't use Aider at
- * all. Instead it only searches directories explicitly listed in AIDER_SEARCH_ROOTS (colon-separated,
- * like PATH) — nothing is scanned unless the user opts in.
+ * all. Instead it only searches directories explicitly listed in AIDER_SEARCH_ROOTS, delimited the same
+ * way PATH is on this OS (node:path's `delimiter`: `:` on Linux/macOS, `;` on Windows — a plain `:` would
+ * mis-split Windows paths at their own drive-letter colon, e.g. "C:\Users\me") — nothing is scanned
+ * unless the user opts in.
  */
 function searchRoots(): string[] {
   const raw = process.env.AIDER_SEARCH_ROOTS;
   if (!raw) return [];
   return raw
-    .split(":")
+    .split(delimiter)
     .map((p) => p.trim())
     .filter(Boolean);
 }

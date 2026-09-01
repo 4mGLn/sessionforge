@@ -30,8 +30,9 @@ sessionforge restore <session-id>
 sessionforge audit [session-id]
 ```
 
-Aider sessions are opt-in: set `AIDER_SEARCH_ROOTS` to a colon-separated list of directories to search
-(Aider has no central session directory, unlike the other four tools), e.g.:
+Aider sessions are opt-in: set `AIDER_SEARCH_ROOTS` to a list of directories to search, delimited the same
+way `PATH` is on your OS (`:` on Linux/macOS, `;` on Windows) — Aider has no central session directory,
+unlike the other four tools — e.g.:
 
 ```bash
 AIDER_SEARCH_ROOTS=~/Projects:~/Workspace sessionforge discover

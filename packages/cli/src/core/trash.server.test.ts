@@ -19,19 +19,26 @@ describe("moveToTrash", () => {
   const originalPlatform = process.platform;
   let root: string;
   let previousHome: string | undefined;
+  let previousUserProfile: string | undefined;
   let previousXdgDataHome: string | undefined;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "sessionforge-trash-"));
     previousHome = process.env.HOME;
+    previousUserProfile = process.env.USERPROFILE;
     previousXdgDataHome = process.env.XDG_DATA_HOME;
+    // node:os's homedir() reads USERPROFILE (not HOME) on Windows — setting both keeps the darwin/linux
+    // simulation tests below sandboxed to `root` regardless of which real OS is running them.
     process.env.HOME = join(root, "home");
+    process.env.USERPROFILE = join(root, "home");
   });
 
   afterEach(async () => {
     setPlatform(originalPlatform);
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     if (previousXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
     else process.env.XDG_DATA_HOME = previousXdgDataHome;
     await rm(root, { recursive: true, force: true });

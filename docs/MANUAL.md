@@ -78,8 +78,9 @@ you explicitly list:
 AIDER_SEARCH_ROOTS=~/Projects:~/Workspace sessionforge discover
 ```
 
-Colon-separated, like `PATH`. With it unset, Aider sessions are simply never discovered — no default
-whole-filesystem scan.
+Delimited the same way `PATH` is on your OS — `:` on Linux/macOS, `;` on Windows (e.g.
+`AIDER_SEARCH_ROOTS=C:\Projects;C:\Workspace`). With it unset, Aider sessions are simply never discovered —
+no default whole-filesystem scan.
 
 ## Installing the Paseo plugin
 

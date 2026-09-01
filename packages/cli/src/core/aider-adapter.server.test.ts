@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AiderAdapter } from "./aider-adapter.server.js";
 import type { AgentAdapter } from "./types.server.js";
@@ -207,14 +207,14 @@ describe("AiderAdapter", () => {
     expect(sessions[0].workspace).toBe(nested);
   });
 
-  it("scans multiple colon-separated search roots and dedupes if they overlap", async () => {
+  it("scans multiple delimiter-separated search roots and dedupes if they overlap", async () => {
     const repoA = join(root, "a");
     const repoB = join(root, "b");
     await mkdir(repoA, { recursive: true });
     await mkdir(repoB, { recursive: true });
     await writeFile(join(repoA, HISTORY_FILE), "# aider chat started at 2026-01-01 10:00:00\n#### in repo a\n");
     await writeFile(join(repoB, HISTORY_FILE), "# aider chat started at 2026-01-01 10:00:00\n#### in repo b\n");
-    process.env.AIDER_SEARCH_ROOTS = `${repoA}:${repoB}:${root}`;
+    process.env.AIDER_SEARCH_ROOTS = [repoA, repoB, root].join(delimiter);
 
     const sessions = await new AiderAdapter().discover();
 
