@@ -1,4 +1,4 @@
-# sessionforge-cli
+# sessionforge
 
 Discover, classify, search, and safely clean up agent coding sessions — Claude Code, Codex, Gemini CLI,
 OpenCode, and Aider — from the command line or as a library. No Paseo dependency: this package is the
@@ -7,7 +7,7 @@ standalone engine behind the [SessionForge Paseo plugin](../../README.md), but w
 ## Install
 
 ```bash
-npm install -g sessionforge-cli
+npm install -g sessionforge
 ```
 
 Requires Node.js 22.16+ (uses `node:sqlite` — needs the `--experimental-sqlite` flag before Node 22.13, and
@@ -50,7 +50,7 @@ available at all for OpenCode/Aider sessions, which have no isolatable per-sessi
 Everything the CLI does is also a plain function/class export — no Paseo, no RPC layer:
 
 ```ts
-import { SessionStore, ClaudeCodeAdapter, CodexAdapter, runDiscovery } from "sessionforge-cli";
+import { SessionStore, ClaudeCodeAdapter, CodexAdapter, runDiscovery } from "sessionforge";
 
 const store = new SessionStore(); // defaults to ~/.sessionforge/sessionforge.db
 await runDiscovery(store, [new ClaudeCodeAdapter(), new CodexAdapter()]);

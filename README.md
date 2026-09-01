@@ -3,12 +3,14 @@
 [![CI](https://github.com/4mGLn/sessionforge/actions/workflows/ci.yml/badge.svg)](https://github.com/4mGLn/sessionforge/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+**English** | [한국어](README.ko.md)
+
 Discovers, classifies, and safely cleans up agent coding sessions across **Claude Code, Codex, Gemini CLI,
 OpenCode, and Aider** — a KEEP / ARCHIVE / JUNK heuristic classifier, ranked search, duplicate/superseded
 detection, and a day-grouped cross-agent timeline, all backed by one local SQLite database instead of five
 different tools' scattered storage formats.
 
-**Not Paseo-only.** [`packages/cli`](packages/cli/README.md) (`sessionforge-cli`) is the standalone engine
+**Not Paseo-only.** [`packages/cli`](packages/cli/README.md) (`sessionforge`) is the standalone engine
 — zero Paseo/React dependency, usable as a CLI or a library in any Node project. The repo root is a Paseo
 plugin that depends on it like any other npm package. Use either one, or both — they share the same local
 database.
@@ -45,7 +47,7 @@ Downloads a prebuilt `sessionforge` binary for your platform from the latest
 
 Other ways to install:
 
-- **CLI via npm:** `npm install -g sessionforge-cli` once published — see
+- **CLI via npm:** `npm install -g sessionforge` once published — see
   [`packages/cli/README.md`](packages/cli/README.md).
 - **Paseo plugin:** `paseo plugin install /path/to/sessionforge` after cloning — see
   [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) for details and a known environment quirk.
@@ -59,7 +61,7 @@ Other ways to install:
 - [`docs/REFERENCE.md`](docs/REFERENCE.md) — architecture, repo layout, why it's two packages, spec
   tracking against [`GOAL.md`](../GOAL.md), and adapter implementation notes.
 - [`packages/cli/README.md`](packages/cli/README.md) — the standalone package's own quick reference (CLI +
-  library usage), what you'd read if you only installed `sessionforge-cli` and never cloned this repo.
+  library usage), what you'd read if you only installed `sessionforge` and never cloned this repo.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, testing, CI, and the publish process.
 
 ## License

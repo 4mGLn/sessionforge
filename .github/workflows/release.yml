@@ -66,6 +66,6 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           gh release create "v$VERSION" \
-            --title "sessionforge-cli v$VERSION" \
+            --title "sessionforge v$VERSION" \
             --generate-notes \
             artifacts/*/*

@@ -29,7 +29,7 @@ sessionforge audit [id] [--json]           # show the audit trail for destructiv
 `list` flags: `--agent`, `--project`, `--status`, `--lifecycle`, `--category`, `--older-than 30d`,
 `--query`, `--scan` (run a fresh discover before listing), `--json`.
 
-From a clone of this repo (rather than a global `sessionforge-cli` install), prefix every command with
+From a clone of this repo (rather than a global `sessionforge` install), prefix every command with
 `npm run cli --`, e.g. `npm run cli -- discover`. For scripting/automation, add npm's `--silent` flag so
 its own banner doesn't leak into piped output: `npm run --silent cli -- list --json | jq .`.
 

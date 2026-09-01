@@ -1,7 +1,7 @@
 # Contributing to SessionForge
 
 Thanks for considering a contribution. This is a two-package npm workspace — `packages/cli`
-(`sessionforge-cli`, the standalone engine) and the repo root (the Paseo plugin, which depends on it). See
+(`sessionforge`, the standalone engine) and the repo root (the Paseo plugin, which depends on it). See
 [`docs/REFERENCE.md`](docs/REFERENCE.md) for why it's split that way and how the pieces fit together.
 
 ## Setup
@@ -10,7 +10,7 @@ Thanks for considering a contribution. This is a two-package npm workspace — `
 git clone https://github.com/4mGLn/sessionforge.git
 cd sessionforge
 npm install   # sets up the workspace and builds packages/cli's dist/ automatically (a postinstall hook —
-              # the root package's imports from "sessionforge-cli" only resolve once that build exists)
+              # the root package's imports from "sessionforge" only resolve once that build exists)
 ```
 
 ## Development commands
@@ -31,7 +31,7 @@ PowerShell's `execFile` with realistic output — real macOS/Windows execution o
 
 **If you touch anything under `packages/cli/src/core` that the root plugin imports** (i.e. anything
 re-exported from `packages/cli/src/index.ts`), run `npm run build` before `npm run typecheck` at the root —
-the root's `import ... from "sessionforge-cli"` resolves against `packages/cli/dist/`, which is git-ignored
+the root's `import ... from "sessionforge"` resolves against `packages/cli/dist/`, which is git-ignored
 build output, not the raw source. `postinstall` handles this on a fresh `npm install`, but it won't pick up
 edits made after that without a fresh build. (This exact ordering mistake broke CI once already — see
 `.github/workflows/ci.yml`'s comments.)

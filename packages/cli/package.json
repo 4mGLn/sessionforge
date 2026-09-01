@@ -1,5 +1,5 @@
 {
-  "name": "sessionforge-cli",
+  "name": "sessionforge",
   "version": "0.1.0",
   "description": "Discover, classify, and safely clean up agent coding sessions (Claude Code, Codex, Gemini CLI, OpenCode, Aider) — as a CLI or as a library. No Paseo dependency.",
   "license": "MIT",

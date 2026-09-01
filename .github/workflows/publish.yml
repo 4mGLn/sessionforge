@@ -1,8 +1,8 @@
-name: Publish sessionforge-cli
+name: Publish sessionforge
 
 # Manual trigger only — this never runs on a push or PR, so it can't accidentally publish. Requires an
 # NPM_TOKEN repo secret (Settings > Secrets and variables > Actions) holding an npm automation token with
-# publish rights for the sessionforge-cli package before this can actually succeed.
+# publish rights for the sessionforge package before this can actually succeed.
 on:
   workflow_dispatch:
 
@@ -27,7 +27,7 @@ jobs:
       - run: npm install
 
       # Same ordering as ci.yml: dist/ (git-ignored) must exist before typecheck can resolve the root
-      # package's "sessionforge-cli" import.
+      # package's "sessionforge" import.
       - run: npm run build
       - run: npm run typecheck
       - run: npm test
