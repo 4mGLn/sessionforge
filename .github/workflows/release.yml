@@ -31,7 +31,24 @@ jobs:
           node-version: "22.5"
           cache: npm
 
-      - run: npm install
+      # See ci.yml's minimum-node-version job for why this retries on the actual on-disk result rather
+      # than npm's exit code: npm's bundled version around Node 22.5 can intermittently die with "Exit
+      # handler never called!" yet still report success. shell: bash is explicit since windows-latest's
+      # default `run:` shell is PowerShell, not bash.
+      - name: npm install (retry — see ci.yml for details on the known npm bug)
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npm install || true
+            if [ -f node_modules/@types/node/package.json ]; then
+              exit 0
+            fi
+            echo "node_modules incomplete after npm install (attempt $attempt) — known npm bug, retrying..."
+            sleep 5
+          done
+          echo "npm install did not produce a complete node_modules after 3 attempts" >&2
+          exit 1
+
       - run: npm run build:binary --workspace packages/cli
 
       - uses: actions/upload-artifact@v4

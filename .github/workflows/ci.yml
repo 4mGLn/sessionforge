@@ -52,15 +52,21 @@ jobs:
 
       # npm's bundled version on 22.5.0 (10.8.2) intermittently dies with "Exit handler never called!" — a
       # known upstream npm bug (npm/cli#4028 and friends), unrelated to anything in this repo — leaving
-      # node_modules half-installed (missing @types/node) and every later step failing with confusing
-      # "Cannot find name 'process'" typecheck errors. Retrying the install is the standard workaround.
-      - name: npm install (retry on npm's intermittent "Exit handler never called!" bug)
+      # node_modules half-installed (missing @types/node, hoisted to the workspace root) and every later
+      # step failing with confusing "Cannot find name 'process'" typecheck errors. Worse, npm's own exit
+      # code is unreliable when this happens (it can print the error yet still exit 0), so retrying on a
+      # nonzero exit code alone doesn't catch it — check the actual on-disk result instead.
+      - name: npm install (retry — npm's exit code alone can't be trusted when this bug fires)
         run: |
           for attempt in 1 2 3; do
-            npm install && exit 0
-            echo "npm install failed (attempt $attempt), retrying..."
+            npm install || true
+            if [ -f node_modules/@types/node/package.json ]; then
+              exit 0
+            fi
+            echo "node_modules incomplete after npm install (attempt $attempt) — known npm bug, retrying..."
             sleep 5
           done
+          echo "npm install did not produce a complete node_modules after 3 attempts" >&2
           exit 1
 
       - run: npm run build
