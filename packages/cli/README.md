@@ -71,3 +71,7 @@ npm run build        # tsc -p tsconfig.build.json — emits dist/ (the library e
                       # including the Paseo plugin in this same repo, actually import)
 npm run cli -- <command>   # run the CLI against local TypeScript source via tsx, no build needed
 ```
+
+## License
+
+[MIT](LICENSE) © aMgLn

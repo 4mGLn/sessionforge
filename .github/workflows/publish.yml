@@ -1,0 +1,32 @@
+name: Publish sessionforge-cli
+
+# Manual trigger only — this never runs on a push or PR, so it can't accidentally publish. Requires an
+# NPM_TOKEN repo secret (Settings > Secrets and variables > Actions) holding an npm automation token with
+# publish rights for the sessionforge-cli package before this can actually succeed.
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for npm provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.5"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Publish packages/cli to npm
+        run: npm publish --workspace packages/cli --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

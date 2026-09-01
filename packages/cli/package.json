@@ -2,6 +2,25 @@
   "name": "sessionforge-cli",
   "version": "0.1.0",
   "description": "Discover, classify, and safely clean up agent coding sessions (Claude Code, Codex, Gemini CLI, OpenCode, Aider) — as a CLI or as a library. No Paseo dependency.",
+  "license": "MIT",
+  "author": "aMgLn",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/4mGLn/sessionforge.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/4mGLn/sessionforge/tree/main/packages/cli#readme",
+  "bugs": "https://github.com/4mGLn/sessionforge/issues",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "opencode",
+    "aider",
+    "agent",
+    "session-management",
+    "cli"
+  ],
   "type": "module",
   "engines": {
     "node": ">=22.5.0"
@@ -19,7 +38,12 @@
   },
   "files": [
     "dist",
-    "src"
+    "src/cli",
+    "src/core",
+    "src/index.ts",
+    "!src/core/**/*.test.ts",
+    "!src/**/.omc",
+    "!src/**/.omc/**"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

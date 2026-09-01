@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # This is the one place the Linux/macOS/Windows-dispatched code in packages/cli/src/core/
+        # (activity.server.ts, trash.server.ts) gets exercised on real OSes — locally it's only ever been
+        # verified on Linux for real, with macOS/Windows covered by mocking ps/lsof/PowerShell's execFile.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm install
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - run: npm run build
+
+      - name: Smoke-test the built CLI binary
+        run: npx sessionforge --help
+
+  # Separate job pinned to the engines.node floor (>=22.5.0) declared in packages/cli/package.json — the
+  # matrix above uses whatever "22" latest resolves to, which could quietly drift ahead of that floor.
+  minimum-node-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.5.0"
+          cache: npm
+
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test

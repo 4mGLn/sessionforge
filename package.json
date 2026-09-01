@@ -2,6 +2,15 @@
   "name": "sessionforge",
   "private": true,
   "version": "0.0.0",
+  "description": "Paseo plugin for universal agent session management — discovers, classifies, and safely cleans up sessions from Claude Code, Codex, Gemini CLI, OpenCode, and Aider. See packages/cli for the standalone engine this depends on.",
+  "license": "MIT",
+  "author": "aMgLn",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/4mGLn/sessionforge.git"
+  },
+  "homepage": "https://github.com/4mGLn/sessionforge#readme",
+  "bugs": "https://github.com/4mGLn/sessionforge/issues",
   "type": "module",
   "engines": {
     "node": ">=22.5.0"

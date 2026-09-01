@@ -1,17 +1,49 @@
 # SessionForge
 
-Discovers, classifies, and safely cleans up agent coding sessions across Claude Code, Codex, Gemini CLI,
-OpenCode, and Aider, with a KEEP / ARCHIVE / JUNK heuristic classifier. See `../GOAL.md` for the full
-product spec this implements against.
+[![CI](https://github.com/4mGLn/sessionforge/actions/workflows/ci.yml/badge.svg)](https://github.com/4mGLn/sessionforge/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**This is not Paseo-only.** The repo is a two-package npm workspace: [`packages/cli`](packages/cli/README.md)
-is the actual engine — adapters, classification, search, persistence — with **zero Paseo/React
-dependency**, publishable and usable standalone (`npm install -g sessionforge-cli`, or as a library import
-in any Node project). The repo root is the Paseo plugin, a thin RPC/UI layer that depends on
-`sessionforge-cli` like any other npm package. Both talk to the same local SQLite database
-(`~/.sessionforge/sessionforge.db`), so `sessionforge archive <id>` from a terminal (with or without Paseo
-installed at all) is reflected immediately in the Paseo UI panel, if you happen to be running it, and vice
-versa.
+Discovers, classifies, and safely cleans up agent coding sessions across Claude Code, Codex, Gemini CLI,
+OpenCode, and Aider, with a KEEP / ARCHIVE / JUNK heuristic classifier. See [`../GOAL.md`](../GOAL.md) for
+the full product spec this implements against.
+
+**This is not Paseo-only.** The repo is a two-package npm workspace:
+[`packages/cli`](packages/cli/README.md) (published as `sessionforge-cli`) is the actual engine —
+adapters, classification, search, persistence — with **zero Paseo/React dependency**, usable standalone
+(`npm install -g sessionforge-cli`, or as a library import in any Node project). The repo root is the
+Paseo plugin, a thin RPC/UI layer that depends on `sessionforge-cli` like any other npm package. Both talk
+to the same local SQLite database (`~/.sessionforge/sessionforge.db`), so `sessionforge archive <id>` from
+a terminal — with or without Paseo installed at all — is reflected immediately in the Paseo UI panel, if
+you happen to be running it, and vice versa.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Layout](#layout)
+- [Why a plugin *and* a CLI — and why they're separate packages](#why-a-plugin-and-a-cli--and-why-theyre-separate-packages)
+- [Platform support](#platform-support)
+- [Safety model](#safety-model)
+- [Installing the Paseo plugin](#installing-the-paseo-plugin)
+- [Development](#development)
+- [MVP scope vs. GOAL.md](#mvp-scope-vs-goalmd)
+- [License](#license)
+
+## Quick start
+
+```bash
+git clone https://github.com/4mGLn/sessionforge.git
+cd sessionforge
+npm install                          # sets up the workspace — both packages
+npm run cli -- discover              # scans Claude Code/Codex/Gemini CLI/OpenCode session storage
+npm run cli -- list                  # table view; add --json for machine-readable output
+npm run cli -- search "postgresql"   # FTS5-ranked search
+```
+
+No Paseo required for any of that. Once `sessionforge-cli` is published, `npm install -g sessionforge-cli`
+gives the same `sessionforge` command with no repo checkout at all — see
+[`packages/cli/README.md`](packages/cli/README.md) for the full CLI reference, `AIDER_SEARCH_ROOTS`, and
+library (`import ... from "sessionforge-cli"`) usage. To use it *with* Paseo instead of (or alongside) the
+CLI, see [Installing the Paseo plugin](#installing-the-paseo-plugin).
 
 ## Layout
 
@@ -56,6 +88,8 @@ index.ts                    Paseo plugin entry point — pure plugin.handle()/ad
 main.client.tsx              session browser UI (sidebar panel): search/filter/agent tabs, List/Timeline view toggle,
                               checkboxes + bulk actions, per-provider logo icons, click-to-preview dialog with related
                               sessions, per-session and per-provider file size
+
+.github/workflows/           CI (typecheck/test/build on Linux/macOS/Windows) + a manual-trigger npm publish workflow
 ```
 
 ## Why a plugin *and* a CLI — and why they're separate packages
@@ -90,11 +124,10 @@ Linux distro or shells out to a distro's package manager — it's plain Node.js 
 "Linux" means any distro family — Debian/Ubuntu, RHEL/Fedora/Rocky/CentOS, Arch, etc. There's no
 distro-specific code path to diverge between them; the only OS-level branching anywhere in the codebase is
 `process.platform === "linux" | "darwin" | "win32"` in `activity.server.ts` and `trash.server.ts` (both in
-`packages/cli/src/core/`), both covered by tests for all three branches (`activity.server.test.ts`,
-`trash.server.test.ts`) — the
-Linux branch is exercised for real (a real `/proc` scan against a real spawned process); macOS and Windows
-are exercised by mocking `ps`/`lsof`/PowerShell's `execFile` calls with realistic output, since this
-environment can't run real macOS or Windows to verify against.
+`packages/cli/src/core/`). CI (see [Development](#development)) runs the full suite on real Linux, macOS,
+and Windows runners on every push — the Linux branch is additionally exercised locally for real (a real
+`/proc` scan against a real spawned process), while macOS/Windows are covered locally by mocking
+`ps`/`lsof`/PowerShell's `execFile` with realistic output.
 
 ## Safety model
 
@@ -107,8 +140,8 @@ environment can't run real macOS or Windows to verify against.
   transcript/session file.
 - "Archive" and "cleanup" only change SessionForge's own `lifecycle` field in its own database
   (`ARCHIVED` / `JUNK`) — fully restorable via `sessionforge restore <id>`, nothing on disk is touched.
-- The Paseo plugin's bulk "Delete selected" is the one action that does touch an agent-owned file: it moves
-  it to the current OS's real trash/recycle bin (see "Platform support" above) — never a hard delete, and
+- Bulk "Delete selected" is the one action that does touch an agent-owned file: it moves it to the current
+  OS's real trash/recycle bin (see [Platform support](#platform-support)) — never a hard delete, and
   SessionForge's own record of it is dropped once that succeeds. OpenCode and Aider sessions can't be
   deleted this way: neither has a discrete per-session file (OpenCode's sessions all live as rows in one
   shared live SQLite database; Aider's share one growing per-repo markdown log), so their adapters simply
@@ -120,29 +153,6 @@ environment can't run real macOS or Windows to verify against.
 - Once a session's lifecycle is explicitly set by a user action (`ARCHIVED`/`JUNK`), subsequent
   `discover` rescans will not silently flip it back — see `STICKY_LIFECYCLES` in
   `packages/cli/src/core/discover.server.ts`.
-
-## Running the CLI
-
-Full CLI reference, library usage, and package-specific dev commands live in
-[`packages/cli/README.md`](packages/cli/README.md) — this is the short version:
-
-```bash
-npm install                          # from the repo root — sets up the workspace (both packages)
-npm run cli -- discover              # delegates to packages/cli; scans Claude Code/Codex/Gemini CLI/OpenCode
-npm run cli -- list --json           # add npm's --silent flag when piping, e.g. npm run --silent cli -- list --json | jq .
-npm run cli -- search "postgresql"
-npm run cli -- cleanup --apply       # move current JUNK candidates to trash (still restorable)
-```
-
-Once published, `npm install -g sessionforge-cli` gives you the same `sessionforge` command with no
-Paseo repo checkout needed at all — see the package README for that path plus `AIDER_SEARCH_ROOTS` and
-library (`import ... from "sessionforge-cli"`) usage.
-
-`npm run typecheck` at the repo root runs both the plugin's own `tsc --noEmit` and `packages/cli`'s.
-`npm test` delegates to `packages/cli`'s vitest suite — classifier/adapter/store/relationship heuristics,
-FTS5 search, a real `/proc`-based activity-detection integration test on Linux, and an end-to-end
-discover -> classify -> cleanup/archive/restore -> rescan-doesn't-clobber-lifecycle flow against temp
-fixtures and a temp SQLite db.
 
 ## Installing the Paseo plugin
 
@@ -168,26 +178,50 @@ rescan, dry-run cleanup preview with confirmation, archive/restore/delete, per-s
 on-disk size) and re-scans Claude Code, Codex, Gemini CLI, and OpenCode sessions every 5 minutes in the
 background (Aider is included in that rescan too, but only once `AIDER_SEARCH_ROOTS` is set).
 
+## Development
+
+```bash
+npm install          # workspace install — both packages
+npm run typecheck     # tsc --noEmit at the root, then in packages/cli
+npm test              # delegates to packages/cli's vitest suite
+npm run build          # builds packages/cli's dist/ (the library entry point the plugin imports)
+npm run cli -- <command>   # delegates to packages/cli's CLI, run from local TypeScript via tsx
+```
+
+`npm test` runs classifier/adapter/store/relationship heuristics, FTS5 search, a real `/proc`-based
+activity-detection integration test on Linux, and an end-to-end discover -> classify -> cleanup/archive/
+restore -> rescan-doesn't-clobber-lifecycle flow against temp fixtures and a temp SQLite db.
+
+**CI** (`.github/workflows/ci.yml`) runs `typecheck`/`test`/`build` plus a CLI-binary smoke test on a
+Linux/macOS/Windows matrix, and a separate job pinned to the `engines.node` floor (22.5.0) so a drift in
+"latest 22.x" can't quietly hide a floor-version regression.
+
+**Publishing** (`.github/workflows/publish.yml`) is manual-trigger only (`workflow_dispatch`) — it never
+runs on a push, and it needs an `NPM_TOKEN` repo secret (an npm automation token with publish rights)
+configured before it can succeed. It publishes `packages/cli` with `--provenance`, which requires the repo
+to stay public.
+
 ## MVP scope vs. GOAL.md
 
 Implemented: Claude Code / Codex / Gemini CLI / OpenCode / Aider adapters (§3–§4; Aider is opt-in via
-`AIDER_SEARCH_ROOTS`, see "Running the CLI" — it has no central session directory, unlike the other four),
-ACTIVE/RECENT/IDLE/STALE activity detection with confidence (§5) — note the live-process signal in
-`activity.server.ts` currently only recognizes `claude` processes, so non-Claude-Code sessions never reach
-`ACTIVE`+`HIGH` confidence that way, only via timestamp heuristics — local heuristic KEEP/ARCHIVE/JUNK
-classification with reason/confidence/evidence (§7), a local heuristic one-line summary per session
-(§6/§22, `summarize.server.ts`; no LLM — title/first message plus the classifier's own outcome signal),
+`AIDER_SEARCH_ROOTS` — it has no central session directory, unlike the other four), ACTIVE/RECENT/IDLE/STALE
+activity detection with confidence (§5) — note the live-process signal in `activity.server.ts` currently
+only recognizes `claude` processes, so non-Claude-Code sessions never reach `ACTIVE`+`HIGH` confidence that
+way, only via timestamp heuristics — local heuristic KEEP/ARCHIVE/JUNK classification with
+reason/confidence/evidence (§7), a local heuristic one-line summary per session (§6/§22,
+`summarize.server.ts`; no LLM — title/first message plus the classifier's own outcome signal),
 list/show/search/cleanup (dry-run + apply)/archive/restore/delete-to-trash/audit (§9–§12; delete isn't
-available for OpenCode/Aider sessions — see "Safety model" above), SQLite persistence separate from
-agent-owned storage (§18), FTS5-ranked search (§13 — real relevance ranking via SQLite's built-in FTS5
+available for OpenCode/Aider sessions — see [Safety model](#safety-model)), SQLite persistence separate
+from agent-owned storage (§18), FTS5-ranked search (§13 — real relevance ranking via SQLite's built-in FTS5
 index, not just substring matching; see `toFtsQuery()` in `store.server.ts`), local heuristic
 DUPLICATE/SUPERSEDED relationship detection (§7/§8, `relationships.server.ts` — grouped by workspace, topic
 word-overlap + timing, surfaced in `session show`/the preview modal as "Related sessions" and as inline
 badges in the Timeline view; informational only, never auto-mutates a session's own `lifecycle`), a
 cross-agent Timeline view (§14 — day-grouped, all agents together, with relationship badges and the same
 per-row checkbox/Archive-Restore and bulk-selection support as the List view, sharing one selection-state
-model between both; the List/Timeline toggle in the toolbar), a native Paseo plugin UI (§15), and
-Linux/macOS/Windows support (§19 — see "Platform support" above).
+model between both), a native Paseo plugin UI (§15), Linux/macOS/Windows support (§19 — see
+[Platform support](#platform-support)), and CI + a publish-ready, independently-usable CLI package (§19's
+"be installable" — now true two ways: `paseo plugin install`, or `npm install -g sessionforge-cli`).
 
 Deferred to Phase 2 per GOAL.md: LLM-assisted classification, and true embedding-based semantic search
 (FTS5 above covers ranked lexical search; embeddings would be a separate, heavier addition).
@@ -215,3 +249,8 @@ delete.
   their own start time — borrowing a later session's mtime would be misleading). The search itself skips
   hidden directories and common heavy ones (`node_modules`, `__pycache__`, `dist`, `build`) and is capped
   at 6 directories deep per search root.
+
+## License
+
+[MIT](LICENSE) © aMgLn — see [`packages/cli`](packages/cli/README.md) for the standalone engine's own
+copy of the same license.
