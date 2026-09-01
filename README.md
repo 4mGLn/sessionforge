@@ -49,7 +49,7 @@ Other ways to install:
   [`packages/cli/README.md`](packages/cli/README.md).
 - **Paseo plugin:** `paseo plugin install /path/to/sessionforge` after cloning — see
   [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) for details and a known environment quirk.
-- Requires **Node.js 22.5+** for the npm/plugin routes (the standalone binary needs no Node.js at all) on
+- Requires **Node.js 22.16+** for the npm/plugin routes (the standalone binary needs no Node.js at all) on
   Linux (any distro), macOS (Intel or Apple Silicon), or Windows.
 
 ## Documentation

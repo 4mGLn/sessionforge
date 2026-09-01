@@ -23,7 +23,7 @@
   ],
   "type": "module",
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.16.0"
   },
   "bin": {
     "sessionforge": "./src/cli/run.mjs"

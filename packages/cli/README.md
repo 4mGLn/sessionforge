@@ -10,7 +10,8 @@ standalone engine behind the [SessionForge Paseo plugin](../../README.md), but w
 npm install -g sessionforge-cli
 ```
 
-Requires Node.js 22.5+ (uses `node:sqlite`, a Node core built-in only available from that version on).
+Requires Node.js 22.16+ (uses `node:sqlite` — needs the `--experimental-sqlite` flag before Node 22.13, and
+its FTS5 support, which search depends on, isn't compiled in until 22.16).
 Works on Linux (any distro), macOS (Intel and Apple Silicon), and Windows — see the root repo's
 [Platform support](../../README.md#platform-support) section for the per-OS details (trash/recycle-bin
 handling, live-process activity detection, etc.), which all live in this package.

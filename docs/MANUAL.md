@@ -134,8 +134,10 @@ every 5 minutes in the background (Aider is included in that rescan too, but onl
 
 ## Platform support
 
-Requires Node.js 22.5+ on every platform (`node:sqlite`, used for persistence, is a Node built-in that only
-exists from that version onward — this is a Node-version prerequisite, not an OS-specific one).
+Requires Node.js 22.16+ on every platform (`node:sqlite`, used for persistence, is a Node built-in — but it
+needs the `--experimental-sqlite` flag before Node 22.13, and its FTS5 support, which the search feature
+depends on, isn't compiled in until 22.16 — verified empirically across the 22.x line, not just read off
+release notes. This is a Node-version prerequisite, not an OS-specific one).
 
 SessionForge targets Linux, macOS, and Windows. Nothing in `packages/cli/src/core` depends on a specific
 Linux distro or shells out to a distro's package manager — it's plain Node.js (`node:fs`, `node:path`,

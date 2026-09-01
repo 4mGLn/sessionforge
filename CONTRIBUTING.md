@@ -40,7 +40,10 @@ edits made after that without a fresh build. (This exact ordering mistake broke 
 
 `.github/workflows/ci.yml` runs on every push to `main` and every PR: `build` → `typecheck` → `test` → a
 CLI-binary smoke test, on a Linux/macOS/Windows matrix, plus a separate job pinned to the `engines.node`
-floor (22.5.0) so "latest 22.x" drift in the matrix can't hide a floor-version regression.
+floor (22.16.0) so "latest 22.x" drift in the matrix can't hide a floor-version regression. That floor
+isn't arbitrary — `node:sqlite` needs `--experimental-sqlite` before Node 22.13, and its FTS5 support
+(which search depends on) isn't compiled in until 22.16; both were found by bisecting real Node versions
+with nvm, not by reading release notes, so re-verify empirically before ever lowering it.
 
 ## Publishing (maintainers)
 

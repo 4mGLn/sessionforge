@@ -13,7 +13,7 @@
   "bugs": "https://github.com/4mGLn/sessionforge/issues",
   "type": "module",
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.16.0"
   },
   "workspaces": [
     "packages/*"
