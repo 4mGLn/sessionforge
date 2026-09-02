@@ -1,4 +1,7 @@
 #!/usr/bin/env -S npx tsx
+import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AiderAdapter } from "../core/aider-adapter.server.js";
 import { ClaudeCodeAdapter } from "../core/claude-adapter.server.js";
 import { CodexAdapter } from "../core/codex-adapter.server.js";
@@ -6,12 +9,34 @@ import { runDiscovery } from "../core/discover.server.js";
 import { GeminiCliAdapter } from "../core/gemini-adapter.server.js";
 import { archiveSession, restoreSession, runCleanup, SessionNotFoundError } from "../core/lifecycle-actions.server.js";
 import { OpenCodeAdapter } from "../core/opencode-adapter.server.js";
+import {
+  arePluginsEnabled,
+  DEFAULT_PLUGIN_ID,
+  downloadPluginArchive,
+  extractPluginArchive,
+  getPluginStatus,
+  installPluginDirectory,
+  isPaseoCliAvailable,
+  PLUGIN_ARCHIVE_NAME,
+  pluginInstallDir,
+} from "../core/paseo-wire.server.js";
 import { SessionStore } from "../core/store.server.js";
 import type { AgentId, ClassificationCategory, SessionLifecycle, SessionStatus } from "../core/types.server.js";
 import { formatSessionDetail, formatSessionTable, parseOlderThan } from "./format.js";
 
 const ADAPTERS = [new ClaudeCodeAdapter(), new CodexAdapter(), new GeminiCliAdapter(), new OpenCodeAdapter(), new AiderAdapter()];
 const ACTOR = "cli";
+
+// Baked in by esbuild's `define` when built into the standalone binary (see build-binary.mjs) — the
+// binary has no package.json on disk at runtime to read its own version from otherwise. Falls back to
+// reading packages/cli/package.json directly when running from raw source (tsx, no esbuild pass).
+declare const __SESSIONFORGE_VERSION__: string | undefined;
+
+function getVersion(): string {
+  if (typeof __SESSIONFORGE_VERSION__ !== "undefined") return __SESSIONFORGE_VERSION__;
+  const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
+  return pkg.version;
+}
 
 interface ParsedArgs {
   positional: string[];
@@ -212,6 +237,68 @@ async function cmdAudit(args: ParsedArgs): Promise<void> {
   }
 }
 
+/**
+ * Automates the manual "clone the repo, `paseo plugin install /path/to/it`" flow: downloads the
+ * version-matched Paseo plugin bundle from this CLI's own GitHub Release, extracts it to a stable local
+ * directory, and installs it via the real `paseo plugin install`. Never touches the daemon's
+ * `pluginsEnabled` switch itself — plugins are trusted, unsandboxed code, so enabling that is left to the
+ * user, in the Paseo app.
+ */
+async function cmdWirePaseo(args: ParsedArgs): Promise<void> {
+  if (!(await isPaseoCliAvailable())) {
+    console.error("The `paseo` CLI was not found on PATH. Install Paseo first, then re-run this command.");
+    process.exitCode = 1;
+    return;
+  }
+  console.log("paseo CLI found.");
+
+  if (!(await arePluginsEnabled())) {
+    console.error(
+      "\nPlugins are disabled on this Paseo daemon. Plugins are trusted, unsandboxed code — backend " +
+        "plugin code can access your daemon machine, including files, processes, credentials, and " +
+        "network services. Client plugin code runs inside the Paseo app.\n\n" +
+        "Enable plugins yourself first (Settings → Plugins → Enable plugins in the Paseo app), " +
+        "then re-run this command.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+  console.log("Plugins are enabled on this daemon.");
+
+  const version = flagString(args.flags, "version") ?? getVersion();
+  const archivePath = join(tmpdir(), PLUGIN_ARCHIVE_NAME);
+  console.log(`Downloading the v${version} Paseo plugin release asset...`);
+  await downloadPluginArchive(version, archivePath);
+
+  const installDir = pluginInstallDir();
+  console.log(`Extracting to ${installDir}...`);
+  await extractPluginArchive(archivePath, installDir);
+
+  const id = flagString(args.flags, "id") ?? DEFAULT_PLUGIN_ID;
+  console.log("Installing via `paseo plugin install`...");
+  const result = await installPluginDirectory(installDir, id);
+
+  if (result.status !== "running") {
+    console.error(`\nPlugin installed but is not running (status: ${result.status}).`);
+    if (result.error) console.error(result.error);
+    console.error(`Check \`paseo plugin logs ${id}\` for details.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`\nSessionForge is wired into Paseo (plugin id: ${id}, status: running).`);
+}
+
+async function cmdPaseoStatus(): Promise<void> {
+  const status = await getPluginStatus(DEFAULT_PLUGIN_ID);
+  if (!status) {
+    console.log(`Not installed. Run \`sessionforge wire-paseo\` to install it.`);
+    return;
+  }
+  console.log(`${status.id}: ${status.status}${status.enabled ? "" : " (disabled)"} — ${status.path}`);
+  if (status.error) console.log(`Error: ${status.error}`);
+}
+
 function printHelp(): void {
   console.log(`sessionforge — unified agent session inventory (SessionForge)
 
@@ -224,6 +311,8 @@ Usage:
   sessionforge archive <id> [--reason ...]   move a session out of the active view
   sessionforge restore <id> [--reason ...]   bring an archived/trashed session back
   sessionforge audit [id] [--json]           show the audit trail for destructive operations
+  sessionforge wire-paseo [--version ...]    download and install the Paseo plugin for this CLI's version
+  sessionforge paseo-status                  show whether the Paseo plugin is installed and running
 `);
 }
 
@@ -248,6 +337,10 @@ async function main(): Promise<void> {
       return cmdRestore(args);
     case "audit":
       return cmdAudit(args);
+    case "wire-paseo":
+      return cmdWirePaseo(args);
+    case "paseo-status":
+      return cmdPaseoStatus();
     case undefined:
     case "help":
     case "--help":

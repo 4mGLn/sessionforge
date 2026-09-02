@@ -24,6 +24,8 @@ sessionforge cleanup [--apply] [--json]    # preview (default) or apply junk cle
 sessionforge archive <id> [--reason ...]   # move a session out of the active view
 sessionforge restore <id> [--reason ...]   # bring an archived/trashed session back
 sessionforge audit [id] [--json]           # show the audit trail for destructive operations
+sessionforge wire-paseo [--version ...]    # download and install the Paseo plugin (see below)
+sessionforge paseo-status                  # check whether the Paseo plugin is installed and running
 ```
 
 `list` flags: `--agent`, `--project`, `--status`, `--lifecycle`, `--category`, `--older-than 30d`,
@@ -83,6 +85,23 @@ Delimited the same way `PATH` is on your OS — `:` on Linux/macOS, `;` on Windo
 no default whole-filesystem scan.
 
 ## Installing the Paseo plugin
+
+The easy way, if you already have the standalone `sessionforge` binary or CLI ([Install](#installing-the-standalone-binary)):
+
+```bash
+sessionforge wire-paseo     # downloads and installs the version-matched plugin, via `paseo plugin install`
+sessionforge paseo-status   # check whether it's installed and running
+```
+
+This automates exactly the manual flow below: it downloads the Paseo-plugin release asset matching this
+CLI's own version (not `releases/latest` — an older CLI always wires up the plugin build it actually
+shipped with), extracts it to `~/.sessionforge/paseo-plugin`, and runs `paseo plugin install` against that
+directory. It never touches the daemon's `pluginsEnabled` switch itself — plugins are trusted, unsandboxed
+code, so if plugins aren't enabled on your daemon, `wire-paseo` stops and tells you to enable them yourself
+first (Settings → Plugins → Enable plugins in the Paseo app).
+
+The manual way — needed if you're developing the plugin itself, since it points `paseo` straight at your
+working tree instead of a downloaded release snapshot:
 
 ```bash
 paseo plugin install /path/to/sessionforge

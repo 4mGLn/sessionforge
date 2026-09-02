@@ -50,8 +50,30 @@ jobs:
           path: packages/cli/build/sessionforge-${{ matrix.target }}*
           if-no-files-found: error
 
+  # The Paseo plugin (this repo's root — index.ts, main.client.tsx, src/server/*) isn't OS/arch-specific
+  # like the CLI binaries above, so it only needs one job. `sessionforge wire-paseo` downloads this exact
+  # asset and points a local `paseo plugin install` at it.
+  package-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm install
+      - run: npm run package:plugin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sessionforge-paseo-plugin
+          path: build/sessionforge-paseo-plugin.tar.gz
+          if-no-files-found: error
+
   release:
-    needs: build-binaries
+    needs: [build-binaries, package-plugin]
     runs-on: ubuntu-latest
     permissions:
       contents: write
