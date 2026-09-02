@@ -1,4 +1,5 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync, writeFileSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -94,7 +95,6 @@ describe("paseo-wire", () => {
       await downloadPluginArchive("1.2.3", destPath);
 
       expect(fetchMock).toHaveBeenCalledOnce();
-      const { readFile } = await import("node:fs/promises");
       expect(await readFile(destPath, "utf8")).toBe("fake tarball contents");
     });
 
@@ -109,7 +109,7 @@ describe("paseo-wire", () => {
   });
 
   describe("extractPluginArchive", () => {
-    it("wipes the destination and shells out to tar", async () => {
+    it("extracts into a staging directory alongside the destination, not straight into it", async () => {
       const destDir = join(root, "dest");
       let sawTarArgs: string[] = [];
       execFileHandler = (cmd, args, callback) => {
@@ -120,7 +120,37 @@ describe("paseo-wire", () => {
 
       await extractPluginArchive(join(root, "archive.tar.gz"), destDir);
 
-      expect(sawTarArgs).toEqual(["-xzf", join(root, "archive.tar.gz"), "-C", destDir]);
+      expect(sawTarArgs).toEqual(["-xzf", join(root, "archive.tar.gz"), "-C", `${destDir}.staging`]);
+    });
+
+    it("leaves a previous working install untouched when tar fails, instead of wiping it first", async () => {
+      const destDir = join(root, "dest");
+      await mkdir(destDir, { recursive: true });
+      await writeFile(join(destDir, "still-here.txt"), "previous working install");
+
+      execFileHandler = (_cmd, _args, callback) => callback(new Error("tar: unexpected end of file"));
+
+      await expect(extractPluginArchive(join(root, "archive.tar.gz"), destDir)).rejects.toThrow();
+
+      expect(await readFile(join(destDir, "still-here.txt"), "utf8")).toBe("previous working install");
+    });
+
+    it("replaces the destination with the newly-extracted content once tar actually succeeds", async () => {
+      const destDir = join(root, "dest");
+      await mkdir(destDir, { recursive: true });
+      await writeFile(join(destDir, "old.txt"), "old content");
+
+      execFileHandler = (_cmd, args, callback) => {
+        // Simulate tar really writing into the staging directory it was told to extract into.
+        const stagingDir = args[args.indexOf("-C") + 1];
+        writeFileSync(join(stagingDir, "new.txt"), "new content");
+        callback(null, { stdout: "", stderr: "" });
+      };
+
+      await extractPluginArchive(join(root, "archive.tar.gz"), destDir);
+
+      expect(existsSync(join(destDir, "old.txt"))).toBe(false);
+      expect(await readFile(join(destDir, "new.txt"), "utf8")).toBe("new content");
     });
   });
 
@@ -168,7 +198,6 @@ describe("paseo-wire", () => {
 
   describe("getInstalledPluginVersion", () => {
     it("reads the version marker scripts/package-plugin.mjs bakes into the packaged bundle", async () => {
-      const { writeFile } = await import("node:fs/promises");
       await writeFile(join(root, ".sessionforge-version"), "0.3.0\n");
 
       expect(await getInstalledPluginVersion(root)).toBe("0.3.0");
