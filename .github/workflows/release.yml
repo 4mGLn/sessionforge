@@ -1,15 +1,43 @@
 name: Release binaries
 
-# Manual trigger only — never runs on a push, so a release only happens when someone deliberately clicks
-# "Run workflow". Builds a standalone sessionforge binary per platform (Node's Single Executable
-# Application feature — no Node.js needed on the machine that runs it) and attaches them to a GitHub
-# Release matching packages/cli/package.json's current version. This is the only distribution channel —
-# sessionforge is not published to npm (see packages/cli/package.json's "private" field).
+# Triggered by pushing a version tag: `git tag v0.3.0 && git push origin v0.3.0`. The tag IS the version —
+# the single source of truth, nothing to keep in sync with packages/cli/package.json (whose own version
+# field is unrelated and never read for this; this package is never published to npm, see its "private"
+# field). workflow_dispatch stays available for re-running the pipeline manually (e.g. while iterating on
+# this workflow itself) via an explicit `version` input, without needing to push a throwaway tag.
+#
+# Builds a standalone sessionforge binary per platform (Node's Single Executable Application feature — no
+# Node.js needed on the machine that runs it) and packages the Paseo plugin, attaching both to a GitHub
+# Release.
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (no leading v), e.g. 0.3.0"
+        required: true
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Resolve version from the trigger (tag ref, or the manual input)
+        id: resolve
+        env:
+          MANUAL_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=$MANUAL_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          fi
+
   build-binaries:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +71,8 @@ jobs:
 
       - run: npm install
       - run: npm run build:binary --workspace packages/cli
+        env:
+          SESSIONFORGE_VERSION: ${{ needs.version.outputs.version }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -73,7 +103,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [build-binaries, package-plugin]
+    needs: [version, build-binaries, package-plugin]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -84,14 +114,10 @@ jobs:
         with:
           path: artifacts
 
-      - name: Read version from packages/cli/package.json
-        id: version
-        run: echo "version=$(node -p "require('./packages/cli/package.json').version")" >> "$GITHUB_OUTPUT"
-
       - name: Create release and upload binaries
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           gh release create "v$VERSION" \
             --title "sessionforge v$VERSION" \

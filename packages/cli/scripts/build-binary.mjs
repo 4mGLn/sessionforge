@@ -7,7 +7,7 @@
 // — SEA binaries aren't cross-compilable from one machine — see .github/workflows/release.yml, which runs
 // this once per matrix OS to cover Linux, both macOS architectures, and Windows.
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { arch, platform } from "node:os";
 import { dirname, join } from "node:path";
@@ -51,7 +51,11 @@ async function main() {
   rmSync(buildDir, { recursive: true, force: true });
   mkdirSync(buildDir, { recursive: true });
 
-  const { version } = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+  // The tag pushed to trigger release.yml is the single source of truth for the version — CI passes it
+  // through this env var. packages/cli/package.json's own version field is unrelated (this package is
+  // never published to npm) and deliberately not read here anymore, so there's nothing to keep in sync
+  // with the release tag. "dev-main" marks a build that didn't come from release.yml at all.
+  const version = process.env.SESSIONFORGE_VERSION ?? "dev-main";
 
   console.log(`Bundling CLI entry point for ${triple}...`);
   await esbuild.build({

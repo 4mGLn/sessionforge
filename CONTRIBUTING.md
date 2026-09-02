@@ -49,17 +49,30 @@ with nvm, not by reading release notes, so re-verify empirically before ever low
 
 ## Releasing (maintainers)
 
-`.github/workflows/release.yml` is manual-trigger only (`workflow_dispatch` from the Actions tab) — it
-never runs on a push. Builds a standalone `sessionforge` binary (Node SEA) natively per platform — Linux,
-macOS Intel, macOS Apple Silicon, Windows — and also packages the Paseo plugin (`scripts/package-plugin.mjs`
-— a self-contained directory with a real, non-symlinked copy of the built `@aadaa88/sessionforge` package
-baked into `node_modules`, since npm workspace symlinks don't survive being extracted on someone else's
-machine; verified by actually installing the packaged output via `paseo plugin install`, not just built).
-All of these are attached to a new GitHub Release tagged from `packages/cli/package.json`'s current
-version. This is the only distribution channel; there is no npm publish step. `sessionforge wire-paseo`
-downloads that same plugin asset and installs it — keep its version-matched download URL (see
-`packages/cli/src/core/paseo-wire.server.ts`) in sync with this workflow's release tag format if either
-changes.
+`.github/workflows/release.yml` triggers on pushing a version tag:
+
+```bash
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+The tag *is* the version — the single source of truth, deliberately not synced with
+`packages/cli/package.json`'s own version field (that field is unrelated and unused by the release
+pipeline; this package is never published to npm). `workflow_dispatch` also works, for re-running the
+pipeline manually (e.g. while iterating on the workflow itself) via an explicit `version` input, without
+pushing a throwaway tag.
+
+It builds a standalone `sessionforge` binary (Node SEA) natively per platform — Linux, macOS Intel, macOS
+Apple Silicon, Windows — with the version baked in via `SESSIONFORGE_VERSION` (see
+`packages/cli/scripts/build-binary.mjs`; a build with that env var unset, e.g. a local dev build, reports
+itself as `dev-main`). It also packages the Paseo plugin (`scripts/package-plugin.mjs` — a self-contained
+directory with a real, non-symlinked copy of the built `@aadaa88/sessionforge` package baked into
+`node_modules`, since npm workspace symlinks don't survive being extracted on someone else's machine;
+verified by actually installing the packaged output via `paseo plugin install`, not just built). All of
+these are attached to a new GitHub Release matching the tag. This is the only distribution channel; there
+is no npm publish step. `sessionforge wire-paseo` downloads that same plugin asset and installs it — keep
+its version-matched download URL (see `packages/cli/src/core/paseo-wire.server.ts`) in sync with this
+workflow's release tag format if either changes.
 
 ## Making changes
 

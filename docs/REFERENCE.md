@@ -59,9 +59,10 @@ main.client.tsx              session browser UI (sidebar panel): search/filter/a
 scripts/package-plugin.mjs   packages the Paseo plugin (this repo's root — see above) into a self-contained
                               directory, then tars it — what `sessionforge wire-paseo` downloads and installs
 
-.github/workflows/           CI (typecheck/test/build on Linux/macOS/Windows) + a manual-trigger release workflow
-                              (builds standalone binaries per platform, packages the Paseo plugin, attaches
-                              both to a GitHub Release)
+.github/workflows/           CI (typecheck/test/build on Linux/macOS/Windows) + a tag-triggered release
+                              workflow (git tag vX.Y.Z && git push origin vX.Y.Z — the tag is the version,
+                              not packages/cli/package.json's own field; builds standalone binaries per
+                              platform, packages the Paseo plugin, attaches both to a GitHub Release)
 ```
 
 ## Why a plugin *and* a CLI — and why they're separate packages
