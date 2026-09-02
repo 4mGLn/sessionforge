@@ -55,6 +55,10 @@ sessionforge wire-paseo
 `paseo plugin install /path/to/sessionforge`(저장소 클론과 Node.js 22.16 이상 필요)는
 [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin)를 참고하세요.
 
+`sessionforge`는 새 릴리스가 나오면 자동으로 감지해 알려줍니다 — 업데이트하려면
+`sessionforge update`를 실행하세요. 자세한 내용은
+[`docs/MANUAL.md`](docs/MANUAL.md#staying-up-to-date)를 참고하세요.
+
 npm에는 배포하지 않습니다 — 독립 바이너리와 Paseo 플러그인이 유일한 배포 경로입니다.
 
 ## 문서

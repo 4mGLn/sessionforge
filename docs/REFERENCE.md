@@ -35,6 +35,10 @@ packages/cli/                      @aadaa88/sessionforge — the standalone pack
     store.server.ts                SQLite persistence + FTS5 ranked search (node:sqlite, ~/.sessionforge/sessionforge.db)
     paseo-wire.server.ts           downloads + installs the Paseo plugin via `paseo plugin install` — powers `wire-paseo`/
                                     `paseo-status`; only reads the daemon's pluginsEnabled setting, never writes it
+    update.server.ts               GitHub-releases-backed self-update: version comparison, a 24h-cached background
+                                    check, and the OS-specific rename dance that replaces a running binary in place
+                                    (Windows can't overwrite/delete a running .exe, only rename it) — powers
+                                    `check-update`/`update`
     discover.server.ts             orchestrates adapters -> activity -> classify -> summarize -> store -> relationships
     lifecycle-actions.server.ts    archive/restore/delete/cleanup + audit log
   src/cli/                         the `sessionforge` CLI itself, imports ../core directly — no daemon needed

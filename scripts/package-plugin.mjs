@@ -9,10 +9,15 @@
 // `@aadaa88/sessionforge` (an npm workspace symlink in this monorepo, not a real directory). Instead this
 // script bakes a real, non-symlinked copy of that package's built output into node_modules — something
 // that works when extracted standalone on a completely different machine, unlike a symlink.
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// Matches the same "dev-main" sentinel packages/cli/scripts/build-binary.mjs falls back to when built
+// outside release.yml — kept as a plain string literal (not imported) since this script runs standalone,
+// before the TS in packages/cli is necessarily even built yet.
+const PLUGIN_VERSION_FILE = ".sessionforge-version";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const buildDir = join(repoRoot, "build");
@@ -44,6 +49,11 @@ function main() {
   cpSync(cliDist, join(cliPackageDest, "dist"), { recursive: true });
   cpSync(join(repoRoot, "packages", "cli", "package.json"), join(cliPackageDest, "package.json"));
   cpSync(join(repoRoot, "packages", "cli", "LICENSE"), join(cliPackageDest, "LICENSE"));
+
+  // Lets `sessionforge paseo-status` report drift between what's actually installed and the running CLI's
+  // own version — release.yml passes the real tag via this env var; unset (a local/manual package:plugin
+  // run) falls back to the same "dev-main" sentinel the CLI binary itself uses.
+  writeFileSync(join(stageDir, PLUGIN_VERSION_FILE), `${process.env.SESSIONFORGE_VERSION ?? "dev-main"}\n`);
 
   rmSync(archivePath, { force: true });
   // tar ships on Linux/macOS by default and as bsdtar on Windows 10 1803+ / Windows 11 — same assumption
