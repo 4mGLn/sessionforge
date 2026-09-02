@@ -84,6 +84,7 @@ jobs:
   # like the CLI binaries above, so it only needs one job. `sessionforge wire-paseo` downloads this exact
   # asset and points a local `paseo plugin install` at it.
   package-plugin:
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,6 +96,8 @@ jobs:
 
       - run: npm install
       - run: npm run package:plugin
+        env:
+          SESSIONFORGE_VERSION: ${{ needs.version.outputs.version }}
 
       - uses: actions/upload-artifact@v4
         with:

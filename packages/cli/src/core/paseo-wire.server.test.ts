@@ -16,6 +16,7 @@ const {
   arePluginsEnabled,
   downloadPluginArchive,
   extractPluginArchive,
+  getInstalledPluginVersion,
   getPluginStatus,
   installPluginDirectory,
   isPaseoCliAvailable,
@@ -162,6 +163,19 @@ describe("paseo-wire", () => {
     it("is a stable path under the user's home directory", () => {
       expect(pluginInstallDir()).toContain(".sessionforge");
       expect(pluginInstallDir()).toContain("paseo-plugin");
+    });
+  });
+
+  describe("getInstalledPluginVersion", () => {
+    it("reads the version marker scripts/package-plugin.mjs bakes into the packaged bundle", async () => {
+      const { writeFile } = await import("node:fs/promises");
+      await writeFile(join(root, ".sessionforge-version"), "0.3.0\n");
+
+      expect(await getInstalledPluginVersion(root)).toBe("0.3.0");
+    });
+
+    it("returns null for a plugin installed the manual way, with no version marker", async () => {
+      expect(await getInstalledPluginVersion(root)).toBeNull();
     });
   });
 });

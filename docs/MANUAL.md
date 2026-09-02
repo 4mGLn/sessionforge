@@ -10,6 +10,7 @@ see [`packages/cli/README.md`](../packages/cli/README.md).
 - [Installing the standalone binary](#installing-the-standalone-binary)
 - [Aider (opt-in) setup](#aider-opt-in-setup)
 - [Installing the Paseo plugin](#installing-the-paseo-plugin)
+- [Staying up to date](#staying-up-to-date)
 - [Safety model](#safety-model)
 - [Platform support](#platform-support)
 
@@ -25,7 +26,9 @@ sessionforge archive <id> [--reason ...]   # move a session out of the active vi
 sessionforge restore <id> [--reason ...]   # bring an archived/trashed session back
 sessionforge audit [id] [--json]           # show the audit trail for destructive operations
 sessionforge wire-paseo [--version ...]    # download and install the Paseo plugin (see below)
-sessionforge paseo-status                  # check whether the Paseo plugin is installed and running
+sessionforge paseo-status                  # check plugin install/running status and version drift
+sessionforge check-update                  # check whether a newer sessionforge release is available
+sessionforge update                        # download and install the latest release, replacing this binary
 ```
 
 `list` flags: `--agent`, `--project`, `--status`, `--lifecycle`, `--category`, `--older-than 30d`,
@@ -125,6 +128,28 @@ by recommendation, rescan, dry-run cleanup preview with confirmation, archive/re
 per-session/per-provider on-disk size. It re-scans Claude Code, Codex, Gemini CLI, and OpenCode sessions
 every 5 minutes in the background (Aider is included in that rescan too, but only once
 `AIDER_SEARCH_ROOTS` is set).
+
+## Staying up to date
+
+Detection is automatic, applying it is not: every command other than `check-update`/`update`/`--version`
+does a cached (once per 24h), silently-fails-safe background check against the latest GitHub Release, and
+prints a one-line notice at the end if a newer version exists —
+
+```
+(sessionforge v0.3.0 is available — run `sessionforge update` to install it.)
+```
+
+— but nothing is ever downloaded or replaced without you explicitly running:
+
+```bash
+sessionforge check-update   # just check, no download
+sessionforge update         # download the latest binary and replace this one in place
+```
+
+`update` only works on an actual release binary — a local/dev build (`sessionforge --version` prints
+`dev-main`) has nothing for it to replace; use `git pull` instead. After updating the CLI, run
+`sessionforge wire-paseo` again to pull the matching plugin version too — `sessionforge paseo-status` shows
+you if the installed plugin has drifted from the CLI's own version.
 
 ## Safety model
 

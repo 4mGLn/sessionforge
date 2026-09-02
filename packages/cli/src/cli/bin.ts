@@ -13,6 +13,7 @@ import {
   DEFAULT_PLUGIN_ID,
   downloadPluginArchive,
   extractPluginArchive,
+  getInstalledPluginVersion,
   getPluginStatus,
   installPluginDirectory,
   isPaseoCliAvailable,
@@ -21,6 +22,7 @@ import {
 } from "../core/paseo-wire.server.js";
 import { SessionStore } from "../core/store.server.js";
 import type { AgentId, ClassificationCategory, SessionLifecycle, SessionStatus } from "../core/types.server.js";
+import { checkForUpdateCached, downloadCliBinary, getLatestReleaseVersion, isUpdateAvailable, selfReplaceBinary } from "../core/update.server.js";
 import { formatSessionDetail, formatSessionTable, parseOlderThan } from "./format.js";
 
 const ADAPTERS = [new ClaudeCodeAdapter(), new CodexAdapter(), new GeminiCliAdapter(), new OpenCodeAdapter(), new AiderAdapter()];
@@ -308,6 +310,64 @@ async function cmdPaseoStatus(): Promise<void> {
   }
   console.log(`${status.id}: ${status.status}${status.enabled ? "" : " (disabled)"} — ${status.path}`);
   if (status.error) console.log(`Error: ${status.error}`);
+
+  const installedVersion = await getInstalledPluginVersion(status.path);
+  const cliVersion = getVersion();
+  if (installedVersion === null) {
+    console.log("Plugin version: unknown (not installed via `wire-paseo` — no version marker present).");
+  } else if (installedVersion !== cliVersion && cliVersion !== DEV_VERSION) {
+    console.log(`Plugin version: ${installedVersion} (this CLI is v${cliVersion} — run \`sessionforge wire-paseo\` to update it).`);
+  } else {
+    console.log(`Plugin version: ${installedVersion}`);
+  }
+}
+
+async function cmdCheckUpdate(): Promise<void> {
+  const current = getVersion();
+  if (current === DEV_VERSION) {
+    console.log(`Running a development build (${DEV_VERSION}) — version checks don't apply.`);
+    return;
+  }
+
+  console.log(`Current version: ${current}`);
+  const latest = await getLatestReleaseVersion();
+  if (isUpdateAvailable(current, latest)) {
+    console.log(`A new version is available: ${latest}`);
+    console.log("Run `sessionforge update` to install it.");
+  } else {
+    console.log("You're on the latest version.");
+  }
+}
+
+/** Downloads the latest platform-matched binary and replaces the currently-running one in place — see
+ * `selfReplaceBinary` for why that needs OS-specific handling rather than a plain overwrite. */
+async function cmdUpdate(): Promise<void> {
+  const current = getVersion();
+  if (current === DEV_VERSION) {
+    console.error(
+      `This is a development build (${DEV_VERSION}), not an installed release binary — there's nothing ` +
+        "for this command to replace. If you're running from a clone, use `git pull` instead.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`Current version: ${current}`);
+  const latest = await getLatestReleaseVersion();
+  if (!isUpdateAvailable(current, latest)) {
+    console.log("Already on the latest version.");
+    return;
+  }
+
+  const isWindows = process.platform === "win32";
+  const newBinaryPath = join(tmpdir(), `sessionforge-update-${latest}${isWindows ? ".exe" : ""}`);
+  console.log(`Downloading v${latest}...`);
+  await downloadCliBinary(latest, newBinaryPath);
+
+  console.log("Installing...");
+  await selfReplaceBinary(newBinaryPath, process.execPath);
+
+  console.log(`Updated to v${latest}. Run \`sessionforge wire-paseo\` too if you use the Paseo plugin, to keep it in sync.`);
 }
 
 function printHelp(): void {
@@ -323,22 +383,19 @@ Usage:
   sessionforge restore <id> [--reason ...]   bring an archived/trashed session back
   sessionforge audit [id] [--json]           show the audit trail for destructive operations
   sessionforge wire-paseo [--version ...]    download and install the Paseo plugin for this CLI's version
-  sessionforge paseo-status                  show whether the Paseo plugin is installed and running
+  sessionforge paseo-status                  show whether the Paseo plugin is installed and running, and
+                                              whether its version has drifted from this CLI's own
+  sessionforge check-update                  check whether a newer sessionforge release is available
+  sessionforge update                        download and install the latest release, replacing this binary
   sessionforge --version                     print this CLI's own version
 `);
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
-  const command = args.positional.shift();
+// Commands that already report version/update info themselves — piling the same background-check notice
+// on top would just be noise.
+const SKIP_UPDATE_NOTICE = new Set(["check-update", "update", "version", "-v", "help", "--help", "-h", undefined]);
 
-  // parseArgs treats any "--xxx" token as a flag regardless of position, so `sessionforge --version` never
-  // reaches the switch below as a positional "--version" — it lands here instead, with command undefined.
-  if (command === undefined && args.flags.get("version")) {
-    console.log(getVersion());
-    return;
-  }
-
+async function runCommand(command: string | undefined, args: ParsedArgs): Promise<void> {
   switch (command) {
     case "discover":
       return cmdDiscover();
@@ -360,6 +417,10 @@ async function main(): Promise<void> {
       return cmdWirePaseo(args);
     case "paseo-status":
       return cmdPaseoStatus();
+    case "check-update":
+      return cmdCheckUpdate();
+    case "update":
+      return cmdUpdate();
     case "version":
     case "-v":
       console.log(getVersion());
@@ -373,6 +434,30 @@ async function main(): Promise<void> {
       console.error(`Unknown command: ${command}\n`);
       printHelp();
       process.exitCode = 1;
+  }
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+  const command = args.positional.shift();
+
+  // parseArgs treats any "--xxx" token as a flag regardless of position, so `sessionforge --version` never
+  // reaches runCommand's switch as a positional "--version" — it lands here instead, with command undefined.
+  if (command === undefined && args.flags.get("version")) {
+    console.log(getVersion());
+    return;
+  }
+
+  await runCommand(command, args);
+
+  // Release detection is automatic (a cached, rate-limited, silently-fails-safe background check on every
+  // other command); actually applying it stays a deliberate, explicit `sessionforge update` — replacing a
+  // running binary out from under the user without asking is the kind of surprise a CLI shouldn't spring.
+  if (!SKIP_UPDATE_NOTICE.has(command)) {
+    const check = await checkForUpdateCached(getVersion());
+    if (check?.updateAvailable) {
+      console.log(`\n(sessionforge v${check.latestVersion} is available — run \`sessionforge update\` to install it.)`);
+    }
   }
 }
 

@@ -34,7 +34,15 @@ sessionforge cleanup --apply       # move current JUNK candidates to trash (stil
 sessionforge archive <session-id> --reason "done"
 sessionforge restore <session-id>
 sessionforge audit [session-id]
+sessionforge wire-paseo            # download and install the Paseo plugin
+sessionforge paseo-status          # plugin install/running status and version drift
+sessionforge check-update          # check for a newer release
+sessionforge update                # download and install the latest release, replacing this binary
 ```
+
+Every command other than `check-update`/`update`/`--version` does a cached (once per 24h),
+silently-fails-safe background check for a newer release and prints a one-line notice if one's available —
+see the root [MANUAL.md](../../docs/MANUAL.md#staying-up-to-date) for details.
 
 Aider sessions are opt-in: set `AIDER_SEARCH_ROOTS` to a list of directories to search, delimited the same
 way `PATH` is on your OS (`:` on Linux/macOS, `;` on Windows) — Aider has no central session directory,

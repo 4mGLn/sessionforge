@@ -94,3 +94,20 @@ export async function getPluginStatus(id: string = DEFAULT_PLUGIN_ID): Promise<P
 export function pluginArchiveExists(path: string): boolean {
   return existsSync(path);
 }
+
+const PLUGIN_VERSION_FILE = ".sessionforge-version";
+
+/**
+ * Reads the version marker `scripts/package-plugin.mjs` bakes into every packaged plugin bundle — lets
+ * `paseo-status` report drift between what's actually installed and the running CLI's own version, without
+ * needing Paseo itself to know anything about SessionForge's versioning. Returns null for a plugin that
+ * was never installed via `wire-paseo` at all (e.g. the manual `paseo plugin install /path/to/clone` dev
+ * flow, which has no such marker file) — that's a legitimate, expected case, not an error.
+ */
+export async function getInstalledPluginVersion(pluginDir: string): Promise<string | null> {
+  try {
+    return (await readFile(join(pluginDir, PLUGIN_VERSION_FILE), "utf8")).trim();
+  } catch {
+    return null;
+  }
+}

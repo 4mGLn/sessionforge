@@ -55,6 +55,9 @@ See [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) for details, 
 and the manual `paseo plugin install /path/to/sessionforge` alternative (only needed for plugin
 development — it requires cloning the repo and Node.js 22.16+, unlike `wire-paseo`).
 
+`sessionforge` checks for new releases automatically and tells you when one's available; run
+`sessionforge update` to install it. See [`docs/MANUAL.md`](docs/MANUAL.md#staying-up-to-date).
+
 Not published to npm — the standalone binary and the Paseo plugin are the only distribution channels.
 
 ## Documentation
