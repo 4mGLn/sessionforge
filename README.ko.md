@@ -45,14 +45,11 @@ irm https://raw.githubusercontent.com/4mGLn/sessionforge/main/install.ps1 | iex
 `sessionforge` 바이너리를 내려받아 PATH에 등록합니다. 지원 대상과 설치 경로를 바꾸는 방법은
 [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-standalone-binary)를 참고하세요.
 
-다른 설치 방법:
+**Paseo 플러그인**으로도 사용할 수 있습니다: 클론한 뒤 `paseo plugin install /path/to/sessionforge` —
+자세한 내용과 알려진 환경 이슈는 [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) 참고
+(이 경로는 Node.js 22.16 이상이 필요합니다; 독립 바이너리는 Node.js가 전혀 필요 없습니다).
 
-- **npm으로 CLI 설치:** 배포된 뒤에는 `npm install -g @aadaa88/sessionforge` — 자세한 내용은
-  [`packages/cli/README.md`](packages/cli/README.md) 참고.
-- **Paseo 플러그인:** 클론한 뒤 `paseo plugin install /path/to/sessionforge` — 자세한 내용과 알려진 환경
-  이슈는 [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) 참고.
-- npm·플러그인 경로는 **Node.js 22.16 이상**이 필요합니다 (독립 바이너리는 Node.js가 전혀 필요 없습니다).
-  Linux(모든 배포판), macOS(Intel 또는 Apple Silicon), Windows에서 동작합니다.
+npm에는 배포하지 않습니다 — 독립 바이너리와 Paseo 플러그인이 유일한 배포 경로입니다.
 
 ## 문서
 
@@ -61,8 +58,8 @@ irm https://raw.githubusercontent.com/4mGLn/sessionforge/main/install.ps1 | iex
 - [`docs/REFERENCE.md`](docs/REFERENCE.md) — 아키텍처, 저장소 구조, 패키지가 두 개로 나뉜 이유,
   [`GOAL.md`](../GOAL.md) 대비 스펙 추적, 어댑터 구현 참고 사항.
 - [`packages/cli/README.md`](packages/cli/README.md) — 독립 패키지 자체의 간단한 레퍼런스(CLI + 라이브러리
-  사용법)로, 이 저장소를 클론하지 않고 `sessionforge`만 설치했다면 이 문서를 보면 됩니다.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — 개발 환경 설정, 테스트, CI, 배포 과정.
+  사용법).
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — 개발 환경 설정, 테스트, CI.
 
 ## 라이선스
 

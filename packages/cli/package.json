@@ -28,9 +28,7 @@
   "bin": {
     "sessionforge": "./src/cli/run.mjs"
   },
-  "publishConfig": {
-    "access": "public"
-  },
+  "private": true,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

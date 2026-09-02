@@ -1,9 +1,10 @@
 name: Release binaries
 
-# Manual trigger only, same safety posture as publish.yml — never runs on a push, so a release only
-# happens when someone deliberately clicks "Run workflow". Builds a standalone sessionforge binary per
-# platform (Node's Single Executable Application feature — no Node.js needed on the machine that runs it)
-# and attaches them to a GitHub Release matching packages/cli/package.json's current version.
+# Manual trigger only — never runs on a push, so a release only happens when someone deliberately clicks
+# "Run workflow". Builds a standalone sessionforge binary per platform (Node's Single Executable
+# Application feature — no Node.js needed on the machine that runs it) and attaches them to a GitHub
+# Release matching packages/cli/package.json's current version. This is the only distribution channel —
+# sessionforge is not published to npm (see packages/cli/package.json's "private" field).
 on:
   workflow_dispatch:
 

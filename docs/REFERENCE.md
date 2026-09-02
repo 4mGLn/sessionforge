@@ -54,7 +54,8 @@ main.client.tsx              session browser UI (sidebar panel): search/filter/a
                               checkboxes + bulk actions, per-provider logo icons, click-to-preview dialog with related
                               sessions, per-session and per-provider file size
 
-.github/workflows/           CI (typecheck/test/build on Linux/macOS/Windows) + a manual-trigger npm publish workflow
+.github/workflows/           CI (typecheck/test/build on Linux/macOS/Windows) + a manual-trigger release workflow
+                              (builds standalone binaries per platform, attaches them to a GitHub Release)
 ```
 
 ## Why a plugin *and* a CLI — and why they're separate packages
@@ -64,10 +65,12 @@ handlers and native UI surfaces (sidebar items, workspace panels, Command Center
 `paseo session list`-style CLI examples aren't achievable literally inside a plugin, so a standalone CLI
 was always necessary. Splitting that CLI (plus the whole engine underneath it) into its own package,
 `packages/cli` / `@aadaa88/sessionforge`, takes that one step further: nothing in it imports `@getpaseo/*`,
-`react`, or `react-native`, so it's independently publishable and useful to anyone who never touches Paseo.
-The repo root — `index.ts`, `main.client.tsx`, `src/server/*` — is just the Paseo plugin, depending on
-`@aadaa88/sessionforge` the same way any other npm consumer would (a workspace-local dependency during
-development, a normal semver dependency once published).
+`react`, or `react-native`, so it's usable — as a standalone binary, or as a library — by anyone who never
+touches Paseo, with zero risk of Paseo/React dependencies leaking into it. `packages/cli` is
+`"private": true` and never published to npm; the repo root — `index.ts`, `main.client.tsx`,
+`src/server/*` — is just the Paseo plugin, depending on `@aadaa88/sessionforge` as a workspace-local
+dependency (npm workspace resolution symlinks it in, same mechanism a published package would use, just
+without ever actually publishing).
 
 `packages/cli` builds a real `dist/` (compiled JS + `.d.ts`) as its library entry point rather than shipping
 raw TypeScript for that path, specifically so the plugin's cross-package import (`import ... from
@@ -96,8 +99,9 @@ badges in the Timeline view; informational only, never auto-mutates a session's 
 cross-agent Timeline view (§14 — day-grouped, all agents together, with relationship badges and the same
 per-row checkbox/Archive-Restore and bulk-selection support as the List view, sharing one selection-state
 model between both), a native Paseo plugin UI (§15), Linux/macOS/Windows support (§19 — see MANUAL.md's
-Platform support), and CI + a publish-ready, independently-usable CLI package (§19's "be installable" — now
-true two ways: `paseo plugin install`, or `npm install -g @aadaa88/sessionforge`).
+Platform support), and CI + an independently-usable CLI package (§19's "be installable" — now true two
+ways: `paseo plugin install`, or the standalone binary via `install.sh`/`install.ps1`; not published to
+npm).
 
 Deferred to Phase 2 per GOAL.md: LLM-assisted classification, and true embedding-based semantic search
 (FTS5 above covers ranked lexical search; embeddings would be a separate, heavier addition).

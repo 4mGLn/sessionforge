@@ -1,7 +1,9 @@
 # Contributing to SessionForge
 
 Thanks for considering a contribution. This is a two-package npm workspace — `packages/cli`
-(`sessionforge`, the standalone engine) and the repo root (the Paseo plugin, which depends on it). See
+(`sessionforge`, the standalone engine) and the repo root (the Paseo plugin, which depends on it). Neither
+package is published to npm; `packages/cli` is `"private": true` and distributed only as a standalone
+binary (see [Releasing](#releasing-maintainers) below) and via the Paseo plugin. See
 [`docs/REFERENCE.md`](docs/REFERENCE.md) for why it's split that way and how the pieces fit together.
 
 ## Setup
@@ -45,11 +47,13 @@ isn't arbitrary — `node:sqlite` needs `--experimental-sqlite` before Node 22.1
 (which search depends on) isn't compiled in until 22.16; both were found by bisecting real Node versions
 with nvm, not by reading release notes, so re-verify empirically before ever lowering it.
 
-## Publishing (maintainers)
+## Releasing (maintainers)
 
-`.github/workflows/publish.yml` is manual-trigger only (`workflow_dispatch` from the Actions tab) — it
-never runs on a push, and needs an `NPM_TOKEN` repo secret (an npm automation token with publish rights)
-configured first. It publishes `packages/cli` with `--provenance` (requires the repo to stay public).
+`.github/workflows/release.yml` is manual-trigger only (`workflow_dispatch` from the Actions tab) — it
+never runs on a push. Builds a standalone `sessionforge` binary (Node SEA) natively per platform — Linux,
+macOS Intel, macOS Apple Silicon, Windows — and attaches them to a new GitHub Release tagged from
+`packages/cli/package.json`'s current version. This is the only distribution channel; there is no npm
+publish step.
 
 ## Making changes
 

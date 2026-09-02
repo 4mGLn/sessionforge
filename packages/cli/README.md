@@ -6,12 +6,17 @@ standalone engine behind the [SessionForge Paseo plugin](../../README.md), but w
 
 ## Install
 
+Not published to npm (this package is `"private": true`) — the CLI is distributed as a standalone binary
+instead:
+
 ```bash
-npm install -g @aadaa88/sessionforge
+curl -fsSL https://raw.githubusercontent.com/4mGLn/sessionforge/main/install.sh | sh
 ```
 
-Requires Node.js 22.16+ (uses `node:sqlite` — needs the `--experimental-sqlite` flag before Node 22.13, and
-its FTS5 support, which search depends on, isn't compiled in until 22.16).
+See the [root README](../../README.md#install) for the Windows one-liner and for installing the Paseo
+plugin. Requires Node.js 22.16+ only if you're building/running from source instead of the binary (uses
+`node:sqlite` — needs the `--experimental-sqlite` flag before Node 22.13, and its FTS5 support, which
+search depends on, isn't compiled in until 22.16).
 Works on Linux (any distro), macOS (Intel and Apple Silicon), and Windows — see the root repo's
 [Platform support](../../README.md#platform-support) section for the per-OS details (trash/recycle-bin
 handling, live-process activity detection, etc.), which all live in this package.
@@ -47,7 +52,9 @@ available at all for OpenCode/Aider sessions, which have no isolatable per-sessi
 
 ## Library usage
 
-Everything the CLI does is also a plain function/class export — no Paseo, no RPC layer:
+Everything the CLI does is also a plain function/class export — no Paseo, no RPC layer. Since this package
+isn't published, this only works as a workspace-local import from elsewhere in this same monorepo (which is
+exactly how the Paseo plugin itself consumes it — see `src/server/session-handlers.server.ts`):
 
 ```ts
 import { SessionStore, ClaudeCodeAdapter, CodexAdapter, runDiscovery } from "@aadaa88/sessionforge";

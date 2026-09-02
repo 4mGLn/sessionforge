@@ -45,14 +45,11 @@ Downloads a prebuilt `sessionforge` binary for your platform from the latest
 [GitHub Release](https://github.com/4mGLn/sessionforge/releases) and puts it on your PATH. See
 [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-standalone-binary) for supported targets and override options.
 
-Other ways to install:
+Also available as a **Paseo plugin**: `paseo plugin install /path/to/sessionforge` after cloning — see
+[`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) for details and a known environment quirk
+(this route needs Node.js 22.16+; the standalone binary needs no Node.js at all).
 
-- **CLI via npm:** `npm install -g @aadaa88/sessionforge` once published — see
-  [`packages/cli/README.md`](packages/cli/README.md).
-- **Paseo plugin:** `paseo plugin install /path/to/sessionforge` after cloning — see
-  [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) for details and a known environment quirk.
-- Requires **Node.js 22.16+** for the npm/plugin routes (the standalone binary needs no Node.js at all) on
-  Linux (any distro), macOS (Intel or Apple Silicon), or Windows.
+Not published to npm — the standalone binary and the Paseo plugin are the only distribution channels.
 
 ## Documentation
 
@@ -61,8 +58,8 @@ Other ways to install:
 - [`docs/REFERENCE.md`](docs/REFERENCE.md) — architecture, repo layout, why it's two packages, spec
   tracking against [`GOAL.md`](../GOAL.md), and adapter implementation notes.
 - [`packages/cli/README.md`](packages/cli/README.md) — the standalone package's own quick reference (CLI +
-  library usage), what you'd read if you only installed `sessionforge` and never cloned this repo.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, testing, CI, and the publish process.
+  library usage).
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, testing, and CI.
 
 ## License
 
