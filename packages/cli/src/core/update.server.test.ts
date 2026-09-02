@@ -101,6 +101,7 @@ describe("getLatestReleaseVersion", () => {
 });
 
 describe("downloadCliBinary", () => {
+  const originalPlatform = process.platform;
   let root: string;
 
   beforeEach(async () => {
@@ -108,11 +109,12 @@ describe("downloadCliBinary", () => {
   });
 
   afterEach(async () => {
+    setPlatform(originalPlatform);
     await rm(root, { recursive: true, force: true });
     vi.unstubAllGlobals();
   });
 
-  it("downloads the platform-matched asset and makes it executable on non-Windows", async () => {
+  it("downloads the platform-matched asset and writes it to the destination path", async () => {
     setPlatform("linux");
     Object.defineProperty(process, "arch", { value: "x64", configurable: true });
 
@@ -126,7 +128,23 @@ describe("downloadCliBinary", () => {
     await downloadCliBinary("0.3.0", destPath);
 
     expect(await readFile(destPath, "utf8")).toBe("fake binary contents");
-    expect(statSync(destPath).mode & 0o111).not.toBe(0); // executable bit set
+  });
+
+  // Faking process.platform doesn't fake the underlying filesystem — chmod's exec bits only mean anything
+  // real on a real POSIX filesystem, so this only runs where the actual OS is Linux/macOS, not merely
+  // where process.platform is set to one (same principle as activity.server.test.ts's real /proc test).
+  it.runIf(originalPlatform !== "win32")("sets the executable bit on a real POSIX filesystem", async () => {
+    // No process.platform faking here — this needs the real host OS's real filesystem semantics.
+    Object.defineProperty(process, "arch", { value: "x64", configurable: true });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("fake binary contents", { status: 200 })),
+    );
+
+    const destPath = join(root, "sessionforge");
+    await downloadCliBinary("0.3.0", destPath);
+
+    expect(statSync(destPath).mode & 0o111).not.toBe(0);
   });
 
   it("throws with the status when the download fails", async () => {
@@ -182,16 +200,23 @@ describe("selfReplaceBinary", () => {
 describe("checkForUpdateCached", () => {
   let root: string;
   let previousHome: string | undefined;
+  let previousUserProfile: string | undefined;
 
   beforeEach(async () => {
     root = await mkdtempAsync(join(tmpdir(), "sessionforge-update-cache-"));
     previousHome = process.env.HOME;
+    previousUserProfile = process.env.USERPROFILE;
+    // node:os's homedir() reads USERPROFILE (not HOME) on Windows — setting both keeps the cache file
+    // sandboxed to `root` regardless of which real OS runs this test.
     process.env.HOME = root;
+    process.env.USERPROFILE = root;
   });
 
   afterEach(async () => {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     await rm(root, { recursive: true, force: true });
     vi.unstubAllGlobals();
   });
