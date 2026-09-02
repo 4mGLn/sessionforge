@@ -1,109 +1,154 @@
 import { execFile } from "node:child_process";
 import { readdir, readFile, readlink } from "node:fs/promises";
 import { promisify } from "node:util";
-import type { ActivityConfidence, SessionActivity, SessionStatus } from "./types.server.js";
+import type { ActivityConfidence, AgentId, SessionActivity, SessionStatus } from "./types.server.js";
 
 const execFileAsync = promisify(execFile);
 
 const RECENT_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
 const IDLE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-let liveClaudeCwdsCache: { at: number; cwds: Set<string> } | null = null;
+/**
+ * Binary name each agent's own CLI process shows up as in `ps`/`/proc` cmdline output — verified against
+ * real installs on this machine for claude/codex/gemini-cli/opencode. aider's `aider` console-script name
+ * is the well-documented pip package entry point but wasn't available to verify the same way (not
+ * installed here). "custom" has no knowable binary name, so it's intentionally absent — it never gets
+ * live-process detection, only the timestamp fallback below.
+ */
+const AGENT_PROCESS_PATTERNS: Partial<Record<AgentId, RegExp>> = {
+  "claude-code": /\bclaude\b/,
+  codex: /\bcodex\b/,
+  "gemini-cli": /\bgemini\b/,
+  opencode: /\bopencode\b/,
+  aider: /\baider\b/,
+};
+
+function matchAgent(cmdline: string): AgentId | null {
+  for (const [agent, pattern] of Object.entries(AGENT_PROCESS_PATTERNS) as [AgentId, RegExp][]) {
+    if (pattern.test(cmdline)) return agent;
+  }
+  return null;
+}
+
+function addCwd(map: Map<AgentId, Set<string>>, agent: AgentId, cwd: string): void {
+  let set = map.get(agent);
+  if (!set) {
+    set = new Set();
+    map.set(agent, set);
+  }
+  set.add(cwd);
+}
+
+let liveAgentCwdsCache: { at: number; cwds: Map<AgentId, Set<string>> } | null = null;
 const PROCESS_SCAN_CACHE_MS = 5000;
 
-/** Linux: /proc gives an exact, instant cmdline + cwd per pid — no subprocess spawn needed. */
-async function liveClaudeCwdsLinux(): Promise<Set<string>> {
-  const cwds = new Set<string>();
+/** Linux: /proc gives an exact, instant cmdline + cwd per pid — no subprocess spawn needed. One scan
+ * covers every agent at once, each pid bucketed by whichever pattern matched its cmdline. */
+async function liveAgentCwdsLinux(): Promise<Map<AgentId, Set<string>>> {
+  const result = new Map<AgentId, Set<string>>();
   let pids: string[];
   try {
     pids = (await readdir("/proc")).filter((entry) => /^\d+$/.test(entry));
   } catch {
-    return cwds;
+    return result;
   }
 
   await Promise.all(
     pids.map(async (pid) => {
       try {
         const cmdline = (await readFile(`/proc/${pid}/cmdline`, "utf8")).replace(/\0/g, " ").trim();
-        if (!/\bclaude\b/.test(cmdline)) return;
+        const agent = matchAgent(cmdline);
+        if (!agent) return;
         const cwd = await readlink(`/proc/${pid}/cwd`);
-        cwds.add(cwd);
+        addCwd(result, agent, cwd);
       } catch {
         // process exited mid-scan, or unreadable (permissions) — ignore
       }
     }),
   );
 
-  return cwds;
+  return result;
 }
 
 /**
  * macOS has no /proc. `ps -axww -o pid=,command=` (the `ww` disables ps's own line-truncation, which
- * would otherwise cut off long command lines) finds candidate pids, then a single `lsof -d cwd` call for
- * all of them at once reads each one's working directory — same information /proc gives on Linux, just
- * via two subprocess calls instead of a filesystem read. Both `ps` and `lsof` ship with every macOS
- * install, on Apple Silicon and Intel alike (this is a CPU-architecture-independent OS convention).
+ * would otherwise cut off long command lines) finds candidate pids per agent, then one `lsof -d cwd` call
+ * per matched agent reads that agent's pids' working directories — same information /proc gives on Linux,
+ * just via subprocess calls instead of a filesystem read. Separate calls per agent (rather than one call
+ * for every pid, disambiguated by lsof's own per-process "p<pid>" lines) keeps the proven single-agent
+ * parsing logic unchanged instead of adding new, harder-to-verify multi-pid output parsing. Both `ps` and
+ * `lsof` ship with every macOS install, on Apple Silicon and Intel alike.
  */
-async function liveClaudeCwdsMac(): Promise<Set<string>> {
-  const cwds = new Set<string>();
+async function liveAgentCwdsMac(): Promise<Map<AgentId, Set<string>>> {
+  const result = new Map<AgentId, Set<string>>();
 
   let psOutput: string;
   try {
     psOutput = (await execFileAsync("ps", ["-axww", "-o", "pid=,command="])).stdout;
   } catch {
-    return cwds;
+    return result;
   }
 
-  const matchingPids: string[] = [];
+  const pidsByAgent = new Map<AgentId, string[]>();
   for (const line of psOutput.split("\n")) {
     const trimmed = line.trim();
     const spaceIndex = trimmed.indexOf(" ");
     if (spaceIndex === -1) continue;
     const pid = trimmed.slice(0, spaceIndex);
     const command = trimmed.slice(spaceIndex + 1);
-    if (/\bclaude\b/.test(command)) matchingPids.push(pid);
-  }
-  if (matchingPids.length === 0) return cwds;
-
-  try {
-    const lsofOutput = (await execFileAsync("lsof", ["-a", "-d", "cwd", "-p", matchingPids.join(","), "-Fn"])).stdout;
-    for (const line of lsofOutput.split("\n")) {
-      if (line.startsWith("n")) cwds.add(line.slice(1));
-    }
-  } catch {
-    // lsof can partially fail (e.g. permission denied for another user's process) — a partial result
-    // from the pids it could read is still useful, so this isn't treated as a hard failure.
+    const agent = matchAgent(command);
+    if (!agent) continue;
+    const pids = pidsByAgent.get(agent);
+    if (pids) pids.push(pid);
+    else pidsByAgent.set(agent, [pid]);
   }
 
-  return cwds;
+  await Promise.all(
+    [...pidsByAgent.entries()].map(async ([agent, pids]) => {
+      try {
+        const lsofOutput = (await execFileAsync("lsof", ["-a", "-d", "cwd", "-p", pids.join(","), "-Fn"])).stdout;
+        for (const line of lsofOutput.split("\n")) {
+          if (line.startsWith("n")) addCwd(result, agent, line.slice(1));
+        }
+      } catch {
+        // lsof can partially fail (e.g. permission denied for another user's process) — a partial result
+        // from the pids it could read is still useful, so this isn't treated as a hard failure. Failing
+        // for one agent's pids doesn't affect the others, since each runs its own independent call.
+      }
+    }),
+  );
+
+  return result;
 }
 
 /**
- * Scans for running `claude` processes and returns their working directories, so a session can be
- * reported ACTIVE with real evidence instead of only a recent-timestamp guess (GOAL.md §5: "Do not claim
- * a session is active when only file modification time suggests activity").
+ * Scans for running agent CLI processes and returns their working directories per agent, so a session can
+ * be reported ACTIVE with real evidence instead of only a recent-timestamp guess (GOAL.md §5: "Do not
+ * claim a session is active when only file modification time suggests activity").
  *
- * Linux and macOS both get this signal. Windows has no equivalent without a native addon — there's no
- * standard API or WMI class exposing a process's current working directory the way /proc or lsof do — so
- * it returns an empty set and every session falls through to the timestamp-only heuristic below
- * (RECENT/IDLE/STALE at MEDIUM confidence). That's a real fidelity gap on Windows, not silently papered
- * over: it's why this function never fabricates ACTIVE/HIGH there.
+ * Linux and macOS both get this signal, for every agent with a known binary name (see
+ * AGENT_PROCESS_PATTERNS). Windows has no equivalent without a native addon — there's no standard API or
+ * WMI class exposing a process's current working directory the way /proc or lsof do — so it returns an
+ * empty map and every session falls through to the timestamp-only heuristic below (RECENT/IDLE/STALE at
+ * MEDIUM confidence). That's a real fidelity gap on Windows, not silently papered over: it's why this
+ * function never fabricates ACTIVE/HIGH there.
  */
-async function liveClaudeCwds(): Promise<Set<string>> {
-  if (liveClaudeCwdsCache && Date.now() - liveClaudeCwdsCache.at < PROCESS_SCAN_CACHE_MS) {
-    return liveClaudeCwdsCache.cwds;
+async function liveAgentCwds(): Promise<Map<AgentId, Set<string>>> {
+  if (liveAgentCwdsCache && Date.now() - liveAgentCwdsCache.at < PROCESS_SCAN_CACHE_MS) {
+    return liveAgentCwdsCache.cwds;
   }
 
-  let cwds: Set<string>;
-  if (process.platform === "linux") cwds = await liveClaudeCwdsLinux();
-  else if (process.platform === "darwin") cwds = await liveClaudeCwdsMac();
-  else cwds = new Set();
+  let cwds: Map<AgentId, Set<string>>;
+  if (process.platform === "linux") cwds = await liveAgentCwdsLinux();
+  else if (process.platform === "darwin") cwds = await liveAgentCwdsMac();
+  else cwds = new Map();
 
-  liveClaudeCwdsCache = { at: Date.now(), cwds };
+  liveAgentCwdsCache = { at: Date.now(), cwds };
   return cwds;
 }
 
 export interface ActivityInput {
+  agentId: AgentId;
   workspace: string;
   lastActivityAt: string;
 }
@@ -115,15 +160,15 @@ export async function detectActivity(input: ActivityInput): Promise<SessionActiv
   }
 
   const ageMs = Date.now() - lastActivity;
-  const liveCwds = await liveClaudeCwds();
-  const hasLiveProcess = liveCwds.has(input.workspace);
+  const liveCwds = await liveAgentCwds();
+  const hasLiveProcess = (liveCwds.get(input.agentId) ?? new Set()).has(input.workspace);
 
   const signals: string[] = [];
   let status: SessionStatus;
   let confidence: ActivityConfidence;
 
   if (hasLiveProcess) {
-    signals.push("matching claude process running with this workspace as cwd");
+    signals.push(`matching ${input.agentId} process running with this workspace as cwd`);
     status = "ACTIVE";
     confidence = ageMs <= RECENT_THRESHOLD_MS ? "HIGH" : "MEDIUM";
   } else if (ageMs <= RECENT_THRESHOLD_MS) {
