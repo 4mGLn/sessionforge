@@ -1,5 +1,4 @@
 #!/usr/bin/env -S npx tsx
-import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AiderAdapter } from "../core/aider-adapter.server.js";
@@ -27,15 +26,16 @@ import { formatSessionDetail, formatSessionTable, parseOlderThan } from "./forma
 const ADAPTERS = [new ClaudeCodeAdapter(), new CodexAdapter(), new GeminiCliAdapter(), new OpenCodeAdapter(), new AiderAdapter()];
 const ACTOR = "cli";
 
-// Baked in by esbuild's `define` when built into the standalone binary (see build-binary.mjs) — the
-// binary has no package.json on disk at runtime to read its own version from otherwise. Falls back to
-// reading packages/cli/package.json directly when running from raw source (tsx, no esbuild pass).
+// Baked in by esbuild's `define` when built into the standalone binary (see build-binary.mjs), which in
+// turn gets it from the git tag that triggered release.yml — the tag is the single source of truth for
+// version, not packages/cli/package.json (whose own version field is unrelated and never read here).
+// "dev-main" means this binary wasn't built by release.yml at all — a local/dev build, not a release.
 declare const __SESSIONFORGE_VERSION__: string | undefined;
 
+const DEV_VERSION = "dev-main";
+
 function getVersion(): string {
-  if (typeof __SESSIONFORGE_VERSION__ !== "undefined") return __SESSIONFORGE_VERSION__;
-  const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
-  return pkg.version;
+  return typeof __SESSIONFORGE_VERSION__ !== "undefined" ? __SESSIONFORGE_VERSION__ : DEV_VERSION;
 }
 
 interface ParsedArgs {
@@ -265,7 +265,18 @@ async function cmdWirePaseo(args: ParsedArgs): Promise<void> {
   }
   console.log("Plugins are enabled on this daemon.");
 
-  const version = flagString(args.flags, "version") ?? getVersion();
+  const versionFlag = flagString(args.flags, "version");
+  const version = versionFlag ?? getVersion();
+  if (version === DEV_VERSION && !versionFlag) {
+    console.error(
+      `\nThis is a development build (version: ${DEV_VERSION}), not a tagged release — there's no ` +
+        "matching Paseo plugin asset to download.\nPass --version <tag> (e.g. --version 0.2.0) to install " +
+        "a specific release's plugin, or use a released sessionforge binary instead.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const archivePath = join(tmpdir(), PLUGIN_ARCHIVE_NAME);
   console.log(`Downloading the v${version} Paseo plugin release asset...`);
   await downloadPluginArchive(version, archivePath);
@@ -313,12 +324,20 @@ Usage:
   sessionforge audit [id] [--json]           show the audit trail for destructive operations
   sessionforge wire-paseo [--version ...]    download and install the Paseo plugin for this CLI's version
   sessionforge paseo-status                  show whether the Paseo plugin is installed and running
+  sessionforge --version                     print this CLI's own version
 `);
 }
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const command = args.positional.shift();
+
+  // parseArgs treats any "--xxx" token as a flag regardless of position, so `sessionforge --version` never
+  // reaches the switch below as a positional "--version" — it lands here instead, with command undefined.
+  if (command === undefined && args.flags.get("version")) {
+    console.log(getVersion());
+    return;
+  }
 
   switch (command) {
     case "discover":
@@ -341,6 +360,10 @@ async function main(): Promise<void> {
       return cmdWirePaseo(args);
     case "paseo-status":
       return cmdPaseoStatus();
+    case "version":
+    case "-v":
+      console.log(getVersion());
+      return;
     case undefined:
     case "help":
     case "--help":
