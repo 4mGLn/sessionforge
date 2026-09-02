@@ -33,6 +33,8 @@ packages/cli/                      @aadaa88/sessionforge — the standalone pack
     relationships.server.ts        local heuristic DUPLICATE/SUPERSEDED cross-session detection (same workspace, topic word-overlap, timing)
     trash.server.ts                OS-dispatched move-to-trash for delete (Linux XDG Trash / macOS ~/.Trash / Windows Recycle Bin)
     store.server.ts                SQLite persistence + FTS5 ranked search (node:sqlite, ~/.sessionforge/sessionforge.db)
+    paseo-wire.server.ts           downloads + installs the Paseo plugin via `paseo plugin install` — powers `wire-paseo`/
+                                    `paseo-status`; only reads the daemon's pluginsEnabled setting, never writes it
     discover.server.ts             orchestrates adapters -> activity -> classify -> summarize -> store -> relationships
     lifecycle-actions.server.ts    archive/restore/delete/cleanup + audit log
   src/cli/                         the `sessionforge` CLI itself, imports ../core directly — no daemon needed
@@ -54,8 +56,12 @@ main.client.tsx              session browser UI (sidebar panel): search/filter/a
                               checkboxes + bulk actions, per-provider logo icons, click-to-preview dialog with related
                               sessions, per-session and per-provider file size
 
+scripts/package-plugin.mjs   packages the Paseo plugin (this repo's root — see above) into a self-contained
+                              directory, then tars it — what `sessionforge wire-paseo` downloads and installs
+
 .github/workflows/           CI (typecheck/test/build on Linux/macOS/Windows) + a manual-trigger release workflow
-                              (builds standalone binaries per platform, attaches them to a GitHub Release)
+                              (builds standalone binaries per platform, packages the Paseo plugin, attaches
+                              both to a GitHub Release)
 ```
 
 ## Why a plugin *and* a CLI — and why they're separate packages

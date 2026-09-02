@@ -23,7 +23,8 @@
     "build": "npm run build --workspace packages/cli",
     "test": "npm test --workspace packages/cli",
     "cli": "npm run cli --workspace packages/cli --",
-    "postinstall": "npm run build --workspace packages/cli"
+    "postinstall": "npm run build --workspace packages/cli",
+    "package:plugin": "node scripts/package-plugin.mjs"
   },
   "dependencies": {
     "@aadaa88/sessionforge": "*"

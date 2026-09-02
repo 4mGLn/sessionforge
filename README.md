@@ -45,9 +45,15 @@ Downloads a prebuilt `sessionforge` binary for your platform from the latest
 [GitHub Release](https://github.com/4mGLn/sessionforge/releases) and puts it on your PATH. See
 [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-standalone-binary) for supported targets and override options.
 
-Also available as a **Paseo plugin**: `paseo plugin install /path/to/sessionforge` after cloning — see
-[`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) for details and a known environment quirk
-(this route needs Node.js 22.16+; the standalone binary needs no Node.js at all).
+Also available as a **Paseo plugin** — once you have the binary above, wire it up with:
+
+```bash
+sessionforge wire-paseo
+```
+
+See [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) for details, a known environment quirk,
+and the manual `paseo plugin install /path/to/sessionforge` alternative (only needed for plugin
+development — it requires cloning the repo and Node.js 22.16+, unlike `wire-paseo`).
 
 Not published to npm — the standalone binary and the Paseo plugin are the only distribution channels.
 

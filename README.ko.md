@@ -45,9 +45,15 @@ irm https://raw.githubusercontent.com/4mGLn/sessionforge/main/install.ps1 | iex
 `sessionforge` 바이너리를 내려받아 PATH에 등록합니다. 지원 대상과 설치 경로를 바꾸는 방법은
 [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-standalone-binary)를 참고하세요.
 
-**Paseo 플러그인**으로도 사용할 수 있습니다: 클론한 뒤 `paseo plugin install /path/to/sessionforge` —
-자세한 내용과 알려진 환경 이슈는 [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) 참고
-(이 경로는 Node.js 22.16 이상이 필요합니다; 독립 바이너리는 Node.js가 전혀 필요 없습니다).
+**Paseo 플러그인**으로도 사용할 수 있습니다 — 위 바이너리가 있다면 다음으로 연결하세요:
+
+```bash
+sessionforge wire-paseo
+```
+
+자세한 내용, 알려진 환경 이슈, 그리고 (플러그인 개발 시에만 필요한) 수동 설치 방법
+`paseo plugin install /path/to/sessionforge`(저장소 클론과 Node.js 22.16 이상 필요)는
+[`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin)를 참고하세요.
 
 npm에는 배포하지 않습니다 — 독립 바이너리와 Paseo 플러그인이 유일한 배포 경로입니다.
 

@@ -7,7 +7,7 @@
 // — SEA binaries aren't cross-compilable from one machine — see .github/workflows/release.yml, which runs
 // this once per matrix OS to cover Linux, both macOS architectures, and Windows.
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { arch, platform } from "node:os";
 import { dirname, join } from "node:path";
@@ -51,6 +51,8 @@ async function main() {
   rmSync(buildDir, { recursive: true, force: true });
   mkdirSync(buildDir, { recursive: true });
 
+  const { version } = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+
   console.log(`Bundling CLI entry point for ${triple}...`);
   await esbuild.build({
     entryPoints: [join(packageRoot, "src", "cli", "bin.ts")],
@@ -63,6 +65,10 @@ async function main() {
     // platform:"node" already treats bare node builtins as external automatically, this just makes it
     // explicit for both the unprefixed and "node:"-prefixed spellings used across the source.
     external: ["node:sqlite"],
+    // Baked in at build time since the binary has no package.json on disk to read at runtime once
+    // distributed standalone — `wire-paseo` needs its own version to pick the matching GitHub Release
+    // asset.
+    define: { __SESSIONFORGE_VERSION__: JSON.stringify(version) },
     logLevel: "info",
   });
 
