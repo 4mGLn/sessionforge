@@ -91,9 +91,11 @@ change.
 
 Implemented: Claude Code / Codex / Gemini CLI / OpenCode / Aider adapters (§3–§4; Aider is opt-in via
 `AIDER_SEARCH_ROOTS` — it has no central session directory, unlike the other four), ACTIVE/RECENT/IDLE/STALE
-activity detection with confidence (§5) — note the live-process signal in `activity.server.ts` currently
-only recognizes `claude` processes, so non-Claude-Code sessions never reach `ACTIVE`+`HIGH` confidence that
-way, only via timestamp heuristics — local heuristic KEEP/ARCHIVE/JUNK classification with
+activity detection with confidence (§5) — the live-process signal in `activity.server.ts` matches each
+session against its *own* agent's live process (a live `codex` process only makes a Codex session ACTIVE,
+never a Claude Code or Gemini CLI one at the same workspace), for claude-code/codex/gemini-cli/opencode; not
+yet empirically verified for aider specifically (its `aider` console-script name is documented, not tested
+against a real running instance) — local heuristic KEEP/ARCHIVE/JUNK classification with
 reason/confidence/evidence (§7), a local heuristic one-line summary per session (§6/§22,
 `summarize.server.ts`; no LLM — title/first message plus the classifier's own outcome signal),
 list/show/search/cleanup (dry-run + apply)/archive/restore/delete-to-trash/audit (§9–§12; delete isn't

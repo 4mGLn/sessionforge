@@ -19,7 +19,7 @@ function sessionId(discovered: DiscoveredSession): string {
 }
 
 async function toSession(discovered: DiscoveredSession, existing: Session | null): Promise<Session> {
-  const activity = await detectActivity({ workspace: discovered.workspace, lastActivityAt: discovered.lastActivityAt });
+  const activity = await detectActivity({ agentId: discovered.agent, workspace: discovered.workspace, lastActivityAt: discovered.lastActivityAt });
   const classification = classifySession({
     status: activity.status,
     lastActivityAt: discovered.lastActivityAt,
