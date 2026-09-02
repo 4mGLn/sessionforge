@@ -1,17 +1,36 @@
-import { statSync, writeFileSync } from "node:fs";
-import { mkdtemp as mkdtempAsync, readFile, rm } from "node:fs/promises";
+import { existsSync, statSync, writeFileSync } from "node:fs";
+import { mkdtemp as mkdtempAsync, readFile, rename as realRename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
+
+// Lets specific tests simulate a cross-filesystem rename (EXDEV) without needing two real filesystems —
+// falls through to the real implementation for every test that doesn't set an override.
+let renameOverride: ((source: string, dest: string) => Promise<void>) | null = null;
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    rename: (source: string, dest: string) => (renameOverride ? renameOverride(source, dest) : actual.rename(source, dest)),
+  };
+});
+
+const {
   checkForUpdateCached,
   compareVersions,
   downloadCliBinary,
   getLatestReleaseVersion,
+  InvalidVersionError,
   isUpdateAvailable,
   selfReplaceBinary,
   targetTriple,
-} from "./update.server.js";
+} = await import("./update.server.js");
+
+function exdevError(): NodeJS.ErrnoException {
+  const error = new Error("EXDEV: cross-device link not permitted") as NodeJS.ErrnoException;
+  error.code = "EXDEV";
+  return error;
+}
 
 function setPlatform(platform: NodeJS.Platform): void {
   Object.defineProperty(process, "platform", { value: platform, configurable: true });
@@ -27,6 +46,12 @@ describe("compareVersions", () => {
   it("treats a missing trailing component as 0", () => {
     expect(compareVersions("1.2", "1.2.0")).toBe(0);
     expect(compareVersions("1.3", "1.2.9")).toBeGreaterThan(0);
+  });
+
+  it("throws InvalidVersionError instead of silently comparing as NaN for a non-numeric component", () => {
+    // A plain numeric split+compare would make "0.3.0-rc" parse to [0, 3, NaN] — NaN is never > 0, so a
+    // real update would go permanently invisible to isUpdateAvailable without this ever raising an error.
+    expect(() => compareVersions("0.3.0-rc", "0.2.0")).toThrow(InvalidVersionError);
   });
 });
 
@@ -45,6 +70,10 @@ describe("isUpdateAvailable", () => {
 
   it("is always true for a dev-main build — any real release counts as newer", () => {
     expect(isUpdateAvailable("dev-main", "0.0.1")).toBe(true);
+  });
+
+  it("fails toward 'yes, update available' rather than silently hiding an unparseable version", () => {
+    expect(isUpdateAvailable("0.2.0", "0.3.0-rc.1")).toBe(true);
   });
 });
 
@@ -195,21 +224,69 @@ describe("selfReplaceBinary", () => {
 
     expect(await readFile(current, "utf8")).toBe("new");
   });
+
+  afterEach(() => {
+    renameOverride = null;
+  });
+
+  it("falls back to copy+unlink on EXDEV — e.g. the download and install location are on different filesystems", async () => {
+    setPlatform("linux");
+    const current = join(root, "sessionforge");
+    const incoming = join(root, "sessionforge-new");
+    writeFileSync(current, "old");
+    writeFileSync(incoming, "new");
+
+    renameOverride = async () => {
+      throw exdevError();
+    };
+
+    await selfReplaceBinary(incoming, current);
+
+    expect(await readFile(current, "utf8")).toBe("new");
+    expect(existsSync(incoming)).toBe(false); // source removed after the copy, same as a real rename would leave it
+  });
+
+  it("rolls the original binary back into place on windows if putting the new one there fails, instead of leaving nothing runnable", async () => {
+    setPlatform("win32");
+    const current = join(root, "sessionforge.exe");
+    const incoming = join(root, "sessionforge-new.exe");
+    writeFileSync(current, "old");
+    writeFileSync(incoming, "new");
+
+    let call = 0;
+    renameOverride = async (source, dest) => {
+      call += 1;
+      if (call === 2) throw new Error("simulated: antivirus lock");
+      return realRename(source, dest);
+    };
+
+    await expect(selfReplaceBinary(incoming, current)).rejects.toThrow(/antivirus lock/);
+
+    // A failed update must be a no-op, never a bricked install — the original binary has to still be
+    // runnable at its original path.
+    expect(await readFile(current, "utf8")).toBe("old");
+  });
 });
 
 describe("checkForUpdateCached", () => {
   let root: string;
   let previousHome: string | undefined;
   let previousUserProfile: string | undefined;
+  let previousCi: string | undefined;
 
   beforeEach(async () => {
     root = await mkdtempAsync(join(tmpdir(), "sessionforge-update-cache-"));
     previousHome = process.env.HOME;
     previousUserProfile = process.env.USERPROFILE;
+    previousCi = process.env.CI;
     // node:os's homedir() reads USERPROFILE (not HOME) on Windows — setting both keeps the cache file
     // sandboxed to `root` regardless of which real OS runs this test.
     process.env.HOME = root;
     process.env.USERPROFILE = root;
+    // This suite itself normally runs inside GitHub Actions, which sets CI=true by default — unset it here
+    // so the non-CI-skip tests below actually exercise real behavior instead of hitting the new CI guard
+    // regardless of what they're testing.
+    delete process.env.CI;
   });
 
   afterEach(async () => {
@@ -217,6 +294,8 @@ describe("checkForUpdateCached", () => {
     else process.env.HOME = previousHome;
     if (previousUserProfile === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = previousUserProfile;
+    if (previousCi === undefined) delete process.env.CI;
+    else process.env.CI = previousCi;
     await rm(root, { recursive: true, force: true });
     vi.unstubAllGlobals();
   });
@@ -226,6 +305,15 @@ describe("checkForUpdateCached", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     expect(await checkForUpdateCached("dev-main")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns null immediately in CI, without any network call — no one reads the notice in a pipeline", async () => {
+    process.env.CI = "true";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await checkForUpdateCached("0.3.0")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env -S npx tsx
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AiderAdapter } from "../core/aider-adapter.server.js";
@@ -80,6 +81,22 @@ function flagString(flags: Map<string, string | boolean>, key: string): string |
 
 function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
+}
+
+/**
+ * Runs `fn` with a fresh, uniquely-named scratch directory, cleaned up afterward either way. Used for
+ * downloads that get replaced/installed into their real destination right after — a fixed, predictable
+ * filename directly under the shared OS temp dir would let another local user pre-place a symlink there
+ * and have the download silently overwrite whatever it points at (no O_EXCL); `mkdtemp`'s random suffix
+ * means there's nothing for an attacker to predict and pre-create in advance.
+ */
+async function withScratchDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "sessionforge-"));
+  try {
+    return await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 async function cmdDiscover(): Promise<void> {
@@ -279,27 +296,29 @@ async function cmdWirePaseo(args: ParsedArgs): Promise<void> {
     return;
   }
 
-  const archivePath = join(tmpdir(), PLUGIN_ARCHIVE_NAME);
-  console.log(`Downloading the v${version} Paseo plugin release asset...`);
-  await downloadPluginArchive(version, archivePath);
+  await withScratchDir(async (scratchDir) => {
+    const archivePath = join(scratchDir, PLUGIN_ARCHIVE_NAME);
+    console.log(`Downloading the v${version} Paseo plugin release asset...`);
+    await downloadPluginArchive(version, archivePath);
 
-  const installDir = pluginInstallDir();
-  console.log(`Extracting to ${installDir}...`);
-  await extractPluginArchive(archivePath, installDir);
+    const installDir = pluginInstallDir();
+    console.log(`Extracting to ${installDir}...`);
+    await extractPluginArchive(archivePath, installDir);
 
-  const id = flagString(args.flags, "id") ?? DEFAULT_PLUGIN_ID;
-  console.log("Installing via `paseo plugin install`...");
-  const result = await installPluginDirectory(installDir, id);
+    const id = flagString(args.flags, "id") ?? DEFAULT_PLUGIN_ID;
+    console.log("Installing via `paseo plugin install`...");
+    const result = await installPluginDirectory(installDir, id);
 
-  if (result.status !== "running") {
-    console.error(`\nPlugin installed but is not running (status: ${result.status}).`);
-    if (result.error) console.error(result.error);
-    console.error(`Check \`paseo plugin logs ${id}\` for details.`);
-    process.exitCode = 1;
-    return;
-  }
+    if (result.status !== "running") {
+      console.error(`\nPlugin installed but is not running (status: ${result.status}).`);
+      if (result.error) console.error(result.error);
+      console.error(`Check \`paseo plugin logs ${id}\` for details.`);
+      process.exitCode = 1;
+      return;
+    }
 
-  console.log(`\nSessionForge is wired into Paseo (plugin id: ${id}, status: running).`);
+    console.log(`\nSessionForge is wired into Paseo (plugin id: ${id}, status: running).`);
+  });
 }
 
 async function cmdPaseoStatus(): Promise<void> {
@@ -360,12 +379,14 @@ async function cmdUpdate(): Promise<void> {
   }
 
   const isWindows = process.platform === "win32";
-  const newBinaryPath = join(tmpdir(), `sessionforge-update-${latest}${isWindows ? ".exe" : ""}`);
-  console.log(`Downloading v${latest}...`);
-  await downloadCliBinary(latest, newBinaryPath);
+  await withScratchDir(async (scratchDir) => {
+    const newBinaryPath = join(scratchDir, `sessionforge-update-${latest}${isWindows ? ".exe" : ""}`);
+    console.log(`Downloading v${latest}...`);
+    await downloadCliBinary(latest, newBinaryPath);
 
-  console.log("Installing...");
-  await selfReplaceBinary(newBinaryPath, process.execPath);
+    console.log("Installing...");
+    await selfReplaceBinary(newBinaryPath, process.execPath);
+  });
 
   console.log(`Updated to v${latest}. Run \`sessionforge wire-paseo\` too if you use the Paseo plugin, to keep it in sync.`);
 }

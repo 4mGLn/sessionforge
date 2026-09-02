@@ -1,9 +1,8 @@
-import { chmodSync, createWriteStream } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmodSync } from "node:fs";
+import { copyFile, mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { arch, homedir, platform } from "node:os";
 import { join } from "node:path";
-import { pipeline } from "node:stream/promises";
-import { Readable } from "node:stream";
+import { downloadFile } from "./download.server.js";
 
 const REPO = "4mGLn/sessionforge";
 const UPDATE_CHECK_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours — one real network check per day at most
@@ -27,11 +26,24 @@ export function targetTriple(): string {
   throw new Error(`Unsupported platform/arch combination for self-update: ${p}/${a}`);
 }
 
+/** Thrown by compareVersions for anything that isn't a plain dotted-numeric version (e.g. a pre-release
+ * tag like "0.3.0-rc.1") — better than silently comparing as NaN, which is neither > 0 nor < 0 nor === 0
+ * and would make a real update invisible to isUpdateAvailable without ever raising an error anywhere. */
+export class InvalidVersionError extends Error {}
+
+function parseVersionParts(version: string): number[] {
+  const parts = version.split(".").map(Number);
+  if (parts.some((part) => Number.isNaN(part))) {
+    throw new InvalidVersionError(`Not a plain dotted-numeric version: "${version}"`);
+  }
+  return parts;
+}
+
 /** Compares two dotted-numeric version strings (e.g. "0.10.2" vs "0.2.9") field by field, not
  * lexicographically — a plain string compare would wrongly rank "0.10.0" below "0.2.0". */
 export function compareVersions(a: string, b: string): number {
-  const partsA = a.split(".").map(Number);
-  const partsB = b.split(".").map(Number);
+  const partsA = parseVersionParts(a);
+  const partsB = parseVersionParts(b);
   const length = Math.max(partsA.length, partsB.length);
   for (let i = 0; i < length; i += 1) {
     const diff = (partsA[i] ?? 0) - (partsB[i] ?? 0);
@@ -40,10 +52,19 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-/** "dev-main" (a local/non-release build) never numerically compares — any real release counts as newer. */
+/**
+ * "dev-main" (a local/non-release build) never numerically compares — any real release counts as newer.
+ * A version that fails to parse (see InvalidVersionError) fails toward "yes, an update might be available"
+ * rather than silently claiming everything's fine when the comparison itself couldn't actually be done.
+ */
 export function isUpdateAvailable(current: string, latest: string): boolean {
   if (current === "dev-main") return true;
-  return compareVersions(latest, current) > 0;
+  try {
+    return compareVersions(latest, current) > 0;
+  } catch (error) {
+    if (error instanceof InvalidVersionError) return true;
+    throw error;
+  }
 }
 
 interface GitHubRelease {
@@ -73,13 +94,16 @@ interface UpdateCheckCache {
 }
 
 /**
- * Rate-limited (24h) background-style check — never throws, so it's safe to call unconditionally at the
- * end of any command without risking that command's own output/exit code. Returns null on any failure
- * (network down, GitHub unreachable, cache unreadable) or when running a dev-main build, so callers can
- * just skip printing anything rather than needing their own error handling.
+ * Rate-limited (24h) update check appended to the end of most commands. Not a detached background task —
+ * it genuinely delays process exit by up to BACKGROUND_CHECK_TIMEOUT_MS on a cache-miss day, since the
+ * whole point is printing its notice before the command's own output is done. Never throws, so it's safe
+ * to call unconditionally without risking the calling command's own output/exit code. Returns null on any
+ * failure (network down, GitHub unreachable, cache unreadable), when running a dev-main build, or in CI
+ * (`CI` env var — a stalled network check has no one to read its notice and just wastes time in a
+ * pipeline), so callers can just skip printing anything rather than needing their own error handling.
  */
 export async function checkForUpdateCached(currentVersion: string): Promise<{ latestVersion: string; updateAvailable: boolean } | null> {
-  if (currentVersion === "dev-main") return null;
+  if (currentVersion === "dev-main" || process.env.CI) return null;
 
   try {
     const cachePath = updateCheckCachePath();
@@ -111,36 +135,52 @@ export async function downloadCliBinary(version: string, destPath: string): Prom
   const isWindows = platform() === "win32";
   const assetName = `sessionforge-${targetTriple()}${isWindows ? ".exe" : ""}`;
   const url = `https://github.com/${REPO}/releases/download/v${version}/${assetName}`;
-  const response = await fetch(url);
-  if (!response.ok || !response.body) {
-    throw new Error(`Download failed (${response.status} ${response.statusText}): ${url}`);
-  }
-  await pipeline(Readable.fromWeb(response.body as import("node:stream/web").ReadableStream), createWriteStream(destPath));
+  await downloadFile(url, destPath);
   if (!isWindows) chmodSync(destPath, 0o755);
+}
+
+/** rename() across filesystems throws EXDEV — falls back to copy+unlink, since the downloaded file
+ * (usually under the OS temp dir) and the install location aren't guaranteed to be on the same filesystem
+ * (e.g. tmpfs /tmp vs a separately-mounted /usr/local/bin). Same pattern trash.server.ts's own
+ * renameOrCopy already uses for the identical reason. */
+async function renameOrCopy(sourcePath: string, destPath: string): Promise<void> {
+  try {
+    await rename(sourcePath, destPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+    await copyFile(sourcePath, destPath);
+    await unlink(sourcePath);
+  }
 }
 
 /**
  * Replaces the currently-running binary in place with a freshly-downloaded one — the standard
  * self-updating-CLI pattern (same one rustup/many Go tools use), because a running executable can't just
  * be overwritten directly on every OS:
- * - Linux/macOS: renaming a file that's currently executing is fine — the OS keeps the old inode alive for
- *   the still-running process, and the path just starts pointing at the new file. A same-directory rename
- *   (not a cross-filesystem copy) keeps this atomic.
+ * - Linux/macOS: renaming (or, cross-filesystem, copying) over a file that's currently executing is fine —
+ *   the OS keeps the old inode alive for the still-running process, and the path just starts pointing at
+ *   the new file.
  * - Windows: a running .exe can't be deleted or overwritten, but it CAN be renamed. So the running binary
- *   is renamed to a `.old.exe` sibling first, then the downloaded file takes its original name. The
- *   `.old.exe` is best-effort deleted immediately after (already-renamed-away, so this rarely fails, but a
- *   file still flushing to disk on a slow machine could keep it locked a moment longer) — a leftover
- *   `.old.exe` is harmless clutter, not a correctness problem, so a failed cleanup isn't treated as fatal.
+ *   is renamed to a `.old.exe` sibling first, then the downloaded file takes its original name. If that
+ *   second step fails (cross-filesystem copy error, antivirus lock, disk full) the `.old.exe` is renamed
+ *   straight back to the original name so the user isn't left with no runnable binary at all — a failed
+ *   update should be a no-op, never a bricked install. The `.old.exe` is best-effort deleted once the swap
+ *   actually succeeds; a leftover on a rare cleanup failure is harmless clutter, not a correctness problem.
  */
 export async function selfReplaceBinary(newBinaryPath: string, currentExecPath: string): Promise<void> {
   if (platform() === "win32") {
     const oldPath = `${currentExecPath}.old.exe`;
     await rm(oldPath, { force: true });
-    await rename(currentExecPath, oldPath);
-    await rename(newBinaryPath, currentExecPath);
+    await renameOrCopy(currentExecPath, oldPath);
+    try {
+      await renameOrCopy(newBinaryPath, currentExecPath);
+    } catch (error) {
+      await renameOrCopy(oldPath, currentExecPath).catch(() => {});
+      throw error;
+    }
     await rm(oldPath, { force: true }).catch(() => {});
     return;
   }
 
-  await rename(newBinaryPath, currentExecPath);
+  await renameOrCopy(newBinaryPath, currentExecPath);
 }
