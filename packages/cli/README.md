@@ -7,7 +7,7 @@ standalone engine behind the [SessionForge Paseo plugin](../../README.md), but w
 ## Install
 
 ```bash
-npm install -g sessionforge
+npm install -g @aadaa88/sessionforge
 ```
 
 Requires Node.js 22.16+ (uses `node:sqlite` — needs the `--experimental-sqlite` flag before Node 22.13, and
@@ -50,7 +50,7 @@ available at all for OpenCode/Aider sessions, which have no isolatable per-sessi
 Everything the CLI does is also a plain function/class export — no Paseo, no RPC layer:
 
 ```ts
-import { SessionStore, ClaudeCodeAdapter, CodexAdapter, runDiscovery } from "sessionforge";
+import { SessionStore, ClaudeCodeAdapter, CodexAdapter, runDiscovery } from "@aadaa88/sessionforge";
 
 const store = new SessionStore(); // defaults to ~/.sessionforge/sessionforge.db
 await runDiscovery(store, [new ClaudeCodeAdapter(), new CodexAdapter()]);

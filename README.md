@@ -47,7 +47,7 @@ Downloads a prebuilt `sessionforge` binary for your platform from the latest
 
 Other ways to install:
 
-- **CLI via npm:** `npm install -g sessionforge` once published — see
+- **CLI via npm:** `npm install -g @aadaa88/sessionforge` once published — see
   [`packages/cli/README.md`](packages/cli/README.md).
 - **Paseo plugin:** `paseo plugin install /path/to/sessionforge` after cloning — see
   [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) for details and a known environment quirk.

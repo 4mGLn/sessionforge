@@ -26,7 +26,7 @@
     "postinstall": "npm run build --workspace packages/cli"
   },
   "dependencies": {
-    "sessionforge": "*"
+    "@aadaa88/sessionforge": "*"
   },
   "devDependencies": {
     "@getpaseo/client": "^0.4.0",

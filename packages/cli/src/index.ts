@@ -1,5 +1,5 @@
-// Public library surface of sessionforge. This is what a consumer (the SessionForge Paseo plugin
-// itself, or any other Node project) gets from `import { ... } from "sessionforge"` — everything here
+// Public library surface of @aadaa88/sessionforge. This is what a consumer (the SessionForge Paseo plugin
+// itself, or any other Node project) gets from `import { ... } from "@aadaa88/sessionforge"` — everything here
 // is agent-agnostic domain logic with zero Paseo/RPC/React dependency; see the CLI (src/cli/bin.ts) and
 // the Paseo plugin (../../../index.ts) for the two current consumers of this same engine.
 

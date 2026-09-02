@@ -10,8 +10,8 @@ import {
   restoreSession,
   runCleanup,
   runDiscovery,
-} from "sessionforge";
-import type { SessionFilter } from "sessionforge";
+} from "@aadaa88/sessionforge";
+import type { SessionFilter } from "@aadaa88/sessionforge";
 
 const ACTOR = "paseo-plugin";
 const ADAPTERS = [new ClaudeCodeAdapter(), new CodexAdapter(), new GeminiCliAdapter(), new OpenCodeAdapter(), new AiderAdapter()];

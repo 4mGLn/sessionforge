@@ -26,7 +26,7 @@ jobs:
       - run: npm install
 
       # packages/cli/dist/ is git-ignored build output — the root package's `import ... from
-      # "sessionforge"` only resolves once it exists, so build must run before typecheck/test on a
+      # "@aadaa88/sessionforge"` only resolves once it exists, so build must run before typecheck/test on a
       # fresh checkout (this bit us once already: it worked locally only because dist/ from an earlier
       # local build was still sitting on disk, masking the ordering bug).
       - run: npm run build

@@ -47,7 +47,7 @@ irm https://raw.githubusercontent.com/4mGLn/sessionforge/main/install.ps1 | iex
 
 다른 설치 방법:
 
-- **npm으로 CLI 설치:** 배포된 뒤에는 `npm install -g sessionforge` — 자세한 내용은
+- **npm으로 CLI 설치:** 배포된 뒤에는 `npm install -g @aadaa88/sessionforge` — 자세한 내용은
   [`packages/cli/README.md`](packages/cli/README.md) 참고.
 - **Paseo 플러그인:** 클론한 뒤 `paseo plugin install /path/to/sessionforge` — 자세한 내용과 알려진 환경
   이슈는 [`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) 참고.
