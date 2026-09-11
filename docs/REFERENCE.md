@@ -48,20 +48,29 @@ packages/cli/                      @aadaa88/sessionforge — the standalone pack
   dist/                            compiled output (git-ignored) — the actual import target for library consumers,
                                     built via `npm run build`; the CLI itself runs off raw TS via tsx, no build needed
 
-src/server/                        Paseo plugin RPC layer — depends on sessionforge like any npm package
-  session-contracts.shared.ts      Zod RPC contracts (session.list, .show, .search, .cleanup, .archive, .restore, .delete, .discover)
-  session-handlers.server.ts       handler implementations + background rescan scheduling (ADAPTERS = Claude Code, Codex, Gemini CLI, OpenCode, Aider)
+shared/session-contracts.ts   Zod RPC contracts (session.list, .show, .search, .cleanup, .archive, .restore, .delete, .discover) —
+                               imported by both index.client.tsx and index.server.ts, per Paseo 0.8's client/server/shared split
+server/session-handlers.ts    handler implementations + background rescan scheduling (ADAPTERS = Claude Code, Codex, Gemini CLI, OpenCode, Aider)
+client/sessions.tsx           session browser UI (sidebar panel): search/filter/agent tabs, List/Timeline view toggle,
+                               checkboxes + bulk actions, per-provider logo icons, click-to-preview dialog with related
+                               sessions, per-session and per-provider file size
 
-index.ts                    Paseo plugin entry point — pure plugin.handle()/addSurface()/addSidebarItem() registration only
-                             (kept minimal: Paseo's Electron-main "evaluate" introspection pass calls this file's
-                             top-level code without a real server context, so it must not directly call anything
-                             imported from a .server.ts file)
-main.client.tsx              session browser UI (sidebar panel): search/filter/agent tabs, List/Timeline view toggle,
-                              checkboxes + bulk actions, per-provider logo icons, click-to-preview dialog with related
-                              sessions, per-session and per-provider file size
+index.client.tsx             Paseo plugin app-bundle entry point — addSurface()/addSidebarItem()/addCommandCenterItem()
+                              registration only
+index.server.ts              Paseo plugin daemon-bundle entry point — plugin.handle() registration + the
+                              background-rescan cleanup hook
+paseo-plugin.d.ts             hand-written ambient types for @getpaseo/plugin's root/client/server modules — Paseo
+                              supplies the real runtime implementations at install time, so there's no real npm
+                              package installed here to pull types from
 
 scripts/package-plugin.mjs   packages the Paseo plugin (this repo's root — see above) into a self-contained
-                              directory, then tars it — what `sessionforge wire-paseo` downloads and installs
+                              directory, then tars it — what `sessionforge wire-paseo` downloads and installs.
+                              Also required for *local* plugin development under Paseo 0.8+: pointing
+                              `paseo plugin install` straight at this repo's root fails, since Paseo's build step
+                              scans the whole given directory and rejects the sibling packages/cli workspace's own
+                              files as "not in client/, server/, or shared/" — see MANUAL.md's Installing the Paseo
+                              plugin section for the actual dev-loop commands (`npm run package:plugin` + install/
+                              reload against `build/paseo-plugin`, not the repo root)
 
 .github/workflows/           CI (typecheck/test/build on Linux/macOS/Windows) + a tag-triggered release
                               workflow (git tag vX.Y.Z && git push origin vX.Y.Z — the tag is the version,
@@ -78,10 +87,10 @@ was always necessary. Splitting that CLI (plus the whole engine underneath it) i
 `packages/cli` / `@aadaa88/sessionforge`, takes that one step further: nothing in it imports `@getpaseo/*`,
 `react`, or `react-native`, so it's usable — as a standalone binary, or as a library — by anyone who never
 touches Paseo, with zero risk of Paseo/React dependencies leaking into it. `packages/cli` is
-`"private": true` and never published to npm; the repo root — `index.ts`, `main.client.tsx`,
-`src/server/*` — is just the Paseo plugin, depending on `@aadaa88/sessionforge` as a workspace-local
-dependency (npm workspace resolution symlinks it in, same mechanism a published package would use, just
-without ever actually publishing).
+`"private": true` and never published to npm; the repo root — `index.client.tsx`, `index.server.ts`,
+`client/`, `server/`, `shared/` — is just the Paseo plugin, depending on `@aadaa88/sessionforge` as a
+workspace-local dependency (npm workspace resolution symlinks it in, same mechanism a published package
+would use, just without ever actually publishing).
 
 `packages/cli` builds a real `dist/` (compiled JS + `.d.ts`) as its library entry point rather than shipping
 raw TypeScript for that path, specifically so the plugin's cross-package import (`import ... from

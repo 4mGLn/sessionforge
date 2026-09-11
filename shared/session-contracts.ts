@@ -1,4 +1,4 @@
-import { defineRpc } from "@getpaseo/plugin/server";
+import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
 export const AgentIdSchema = z.enum(["claude-code", "codex", "gemini-cli", "aider", "opencode", "custom"]);

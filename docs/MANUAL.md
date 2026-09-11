@@ -103,12 +103,25 @@ directory. It never touches the daemon's `pluginsEnabled` switch itself — plug
 code, so if plugins aren't enabled on your daemon, `wire-paseo` stops and tells you to enable them yourself
 first (Settings → Plugins → Enable plugins in the Paseo app).
 
-The manual way — needed if you're developing the plugin itself, since it points `paseo` straight at your
-working tree instead of a downloaded release snapshot:
+The manual way — needed if you're developing the plugin itself. **Point `paseo` at `build/paseo-plugin`, not
+at the repo root** — Paseo 0.8's build step scans the *entire* given directory for stray plugin modules, and
+rejects anything outside `client/`/`server/`/`shared/`, including unrelated files from this monorepo's
+sibling `packages/cli` workspace (verified: installing straight from the repo root fails with `Plugin
+modules belong in client/, server/, or shared/: .../packages/cli/dist/index.d.ts`). `npm run package:plugin`
+stages exactly the plugin's own files with no such sibling-package contamination — the same staged
+directory the tarball attached to releases is built from — so point `paseo` there instead:
 
 ```bash
-paseo plugin install /path/to/sessionforge
-paseo plugin reload sessionforge   # after any source change — never auto-reloaded
+npm run package:plugin                                       # stages the plugin (and everything it needs) into build/paseo-plugin
+paseo plugin install ./build/paseo-plugin --id sessionforge   # first time
+```
+
+After any source change, repackage then reload (reload just re-reads from the same installed path, so it
+won't pick up new edits until you repackage first):
+
+```bash
+npm run package:plugin
+paseo plugin reload sessionforge
 paseo plugin logs sessionforge     # tail console.log/console.error from the server contribution
 ```
 

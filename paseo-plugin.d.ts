@@ -1,11 +1,12 @@
-declare module "@getpaseo/plugin/server" {
-  import type { PaseoApi } from "@getpaseo/client";
-  import type { ZodType, input as ZodInput, output as ZodOutput } from "zod";
+// Hand-written ambient type declarations for @getpaseo/plugin's v0.8+ split client/server/shared module
+// architecture (Paseo supplies the real runtime implementations at install time; consumers don't install
+// this package themselves, so there's no real npm package here to pull types from). Reorganized from the
+// pre-0.8 single-module shape when this plugin migrated for the v0.8 requirements.paseo breaking change —
+// see https://paseo.sh/docs/plugins/v0.8/migration.
+declare module "@getpaseo/plugin" {
+  import type { ZodType } from "zod";
 
-  export interface PluginRpcContract<
-    InputSchema extends ZodType = ZodType,
-    OutputSchema extends ZodType = ZodType,
-  > {
+  export interface PluginRpcContract<InputSchema extends ZodType = ZodType, OutputSchema extends ZodType = ZodType> {
     name: string;
     input: InputSchema;
     output: OutputSchema;
@@ -34,45 +35,47 @@ declare module "@getpaseo/plugin/server" {
     search: PluginRpcContract;
   }
 
-  export interface PluginHandlerContext {
-    paseo: PaseoApi;
-  }
-
   export function defineRpc<InputSchema extends ZodType, OutputSchema extends ZodType>(definition: {
     name: string;
     input: InputSchema;
     output: OutputSchema;
   }): PluginRpcContract<InputSchema, OutputSchema>;
 
-  export function defineAttachmentSource<Definition extends PluginAttachmentSourceContribution>(
-    definition: Definition,
-  ): Definition;
+  export function defineAttachmentSource<Definition extends PluginAttachmentSourceContribution>(definition: Definition): Definition;
 
   export const PluginAttachmentItemSchema: import("zod").ZodType<PluginAttachmentItem>;
   export const PluginAttachmentSearchPayloadSchema: import("zod").ZodType<PluginAttachmentSearchPayload>;
+
+  export type PluginCleanup = () => void | Promise<void>;
 }
 
-declare module "@getpaseo/plugin" {
+declare module "@getpaseo/plugin/server" {
+  import type { PaseoApi } from "@getpaseo/client";
+  import type { input as ZodInput, output as ZodOutput, ZodType } from "zod";
+  import type { PluginCleanup, PluginRpcContract } from "@getpaseo/plugin";
+
+  export interface PluginHandlerContext {
+    paseo: PaseoApi;
+  }
+
+  export interface PluginServerContext {
+    handle<InputSchema extends ZodType, OutputSchema extends ZodType>(
+      contract: PluginRpcContract<InputSchema, OutputSchema>,
+      handler: (
+        input: ZodOutput<InputSchema>,
+        context: PluginHandlerContext,
+      ) => ZodInput<OutputSchema> | Promise<ZodInput<OutputSchema>>,
+    ): void;
+  }
+
+  export type PluginServerContribution = (server: PluginServerContext) => PluginCleanup;
+}
+
+declare module "@getpaseo/plugin/client" {
   import type { ComponentType } from "react";
   import type { PaseoApi } from "@getpaseo/client";
-  import type { ZodType, input as ZodInput, output as ZodOutput } from "zod";
-  import type {
-    PluginAttachmentSourceContribution,
-    PluginHandlerContext,
-    PluginRpcContract,
-  } from "@getpaseo/plugin/server";
-
-  export {
-    PluginAttachmentItemSchema,
-    PluginAttachmentSearchPayloadSchema,
-    defineAttachmentSource,
-    defineRpc,
-    type PluginAttachmentItem,
-    type PluginAttachmentSearchPayload,
-    type PluginAttachmentSourceContribution,
-    type PluginHandlerContext,
-    type PluginRpcContract,
-  } from "@getpaseo/plugin/server";
+  import type { input as ZodInput, output as ZodOutput, ZodType } from "zod";
+  import type { PluginAttachmentSourceContribution, PluginCleanup, PluginRpcContract } from "@getpaseo/plugin";
 
   export interface PluginTheme {
     readonly colors: {
@@ -140,11 +143,27 @@ declare module "@getpaseo/plugin" {
   }
 
   export type PluginPanelLocation = "workspace" | "explorer";
-  export interface PluginOpenPanelOptions { location?: PluginPanelLocation; }
+  export interface PluginOpenPanelOptions {
+    location?: PluginPanelLocation;
+  }
 
   export type PluginWorkspacePanelContribution =
-    | { id: string; title: string; icon: string; locations?: readonly PluginPanelLocation[]; context: "workspace"; Component: ComponentType<PluginWorkspacePanelProps> }
-    | { id: string; title: string; icon: string; locations?: readonly PluginPanelLocation[]; context: "agent"; Component: ComponentType<PluginAgentPanelProps> };
+    | {
+        id: string;
+        title: string;
+        icon: string;
+        locations?: readonly PluginPanelLocation[];
+        context: "workspace";
+        Component: ComponentType<PluginWorkspacePanelProps>;
+      }
+    | {
+        id: string;
+        title: string;
+        icon: string;
+        locations?: readonly PluginPanelLocation[];
+        context: "agent";
+        Component: ComponentType<PluginAgentPanelProps>;
+      };
 
   export interface PluginSidebarContribution {
     id: string;
@@ -203,18 +222,32 @@ declare module "@getpaseo/plugin" {
   }
 
   export type PluginCommandCenterItemContribution =
-    | { id: string; title: string; icon: string; keywords?: readonly string[]; context: "global"; onSelect(context: PluginGlobalCommandContext): void | Promise<void> }
-    | { id: string; title: string; icon: string; keywords?: readonly string[]; context: "workspace"; onSelect(context: PluginWorkspaceCommandContext): void | Promise<void> }
-    | { id: string; title: string; icon: string; keywords?: readonly string[]; context: "agent"; onSelect(context: PluginAgentCommandContext): void | Promise<void> };
+    | {
+        id: string;
+        title: string;
+        icon: string;
+        keywords?: readonly string[];
+        context: "global";
+        onSelect(context: PluginGlobalCommandContext): void | Promise<void>;
+      }
+    | {
+        id: string;
+        title: string;
+        icon: string;
+        keywords?: readonly string[];
+        context: "workspace";
+        onSelect(context: PluginWorkspaceCommandContext): void | Promise<void>;
+      }
+    | {
+        id: string;
+        title: string;
+        icon: string;
+        keywords?: readonly string[];
+        context: "agent";
+        onSelect(context: PluginAgentCommandContext): void | Promise<void>;
+      };
 
-  export interface PluginContext {
-    handle<InputSchema extends ZodType, OutputSchema extends ZodType>(
-      contract: PluginRpcContract<InputSchema, OutputSchema>,
-      handler: (
-        input: ZodOutput<InputSchema>,
-        context: PluginHandlerContext,
-      ) => ZodInput<OutputSchema> | Promise<ZodInput<OutputSchema>>,
-    ): void;
+  export interface PluginClientContext {
     addSurface(id: string, Component: ComponentType<PluginSurfaceProps>): void;
     addSidebarItem(contribution: PluginSidebarContribution): void;
     addWorkspacePanel(contribution: PluginWorkspacePanelContribution): void;
@@ -223,8 +256,7 @@ declare module "@getpaseo/plugin" {
     addTheme(contribution: PluginThemeContribution): void;
   }
 
-  export type PluginCleanup = () => void | Promise<void>;
-  export type PluginContribution = (plugin: PluginContext) => PluginCleanup;
+  export type PluginClientContribution = (client: PluginClientContext) => PluginCleanup;
 
   export function useRpc<InputSchema extends ZodType, OutputSchema extends ZodType>(
     contract: PluginRpcContract<InputSchema, OutputSchema>,
@@ -232,13 +264,7 @@ declare module "@getpaseo/plugin" {
 
   export function usePaseo(): PaseoApi;
 
-  export function useWorkspace<Selection>(
-    workspaceId: string,
-    selector: (workspace: PluginWorkspaceSnapshot) => Selection,
-  ): Selection | null;
+  export function useWorkspace<Selection>(workspaceId: string, selector: (workspace: PluginWorkspaceSnapshot) => Selection): Selection | null;
 
-  export function useAgent<Selection>(
-    agentId: string,
-    selector: (agent: PluginAgentSnapshot) => Selection,
-  ): Selection | null;
+  export function useAgent<Selection>(agentId: string, selector: (agent: PluginAgentSnapshot) => Selection): Selection | null;
 }
