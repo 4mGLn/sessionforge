@@ -11,6 +11,14 @@ function jsonl(...lines: Record<string, unknown>[]): string {
   return `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`;
 }
 
+/** Relative to whenever the test actually runs, not a fixed calendar date — classifySession's
+ * ARCHIVE_AGE_DAYS (14) threshold is age-based, so a hardcoded past timestamp is a time bomb: it read as
+ * "recent" when first written, then silently flipped this fixture's own classification from KEEP to
+ * ARCHIVE once enough real time passed, breaking this test and the two others that depend on it. */
+function daysAgoIso(days: number): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
 describe("discover + lifecycle actions (integration)", () => {
   let root: string;
   let previousConfigDir: string | undefined;
@@ -30,14 +38,14 @@ describe("discover + lifecycle actions (integration)", () => {
         {
           type: "user",
           message: { content: "please implement the search command end to end" },
-          timestamp: "2026-08-20T10:00:00.000Z",
+          timestamp: daysAgoIso(2),
           cwd: "/home/amgln/demo",
           sessionId: "keep-session",
         },
         {
           type: "assistant",
           message: { content: [{ type: "text", text: "Sure, starting now." }] },
-          timestamp: "2026-08-20T10:00:05.000Z",
+          timestamp: daysAgoIso(2),
           cwd: "/home/amgln/demo",
           sessionId: "keep-session",
         },
@@ -50,7 +58,7 @@ describe("discover + lifecycle actions (integration)", () => {
       jsonl({
         type: "user",
         message: { content: "test" },
-        timestamp: "2026-08-21T10:00:00.000Z",
+        timestamp: daysAgoIso(1),
         cwd: "/home/amgln/demo",
         sessionId: "junk-session",
       }),

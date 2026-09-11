@@ -1,5 +1,5 @@
-import type { PluginSurfaceProps } from "@getpaseo/plugin";
-import { useRpc } from "@getpaseo/plugin";
+import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
+import { useRpc } from "@getpaseo/plugin/client";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Image, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import {
@@ -12,7 +12,7 @@ import {
   SessionRelationshipSchema,
   SessionSchema,
   showSessionRpc,
-} from "./src/server/session-contracts.shared";
+} from "../shared/session-contracts";
 import type { z } from "zod";
 
 type SessionDto = z.infer<typeof SessionSchema>;

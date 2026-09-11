@@ -38,6 +38,13 @@ build output, not the raw source. `postinstall` handles this on a fresh `npm ins
 edits made after that without a fresh build. (This exact ordering mistake broke CI once already — see
 `.github/workflows/ci.yml`'s comments.)
 
+**If you're changing the Paseo plugin itself** (`index.client.tsx`, `index.server.ts`, `client/`, `server/`,
+`shared/`), pointing `paseo plugin install`/`reload` straight at the repo root doesn't work under Paseo
+0.8+ — its build step scans the whole given directory and rejects `packages/cli`'s own files as not
+belonging to `client/`/`server/`/`shared/`. Use `npm run package:plugin` (stages a self-contained copy into
+`build/paseo-plugin`, with no sibling-package contamination) and point `paseo` at that instead — see
+[`docs/MANUAL.md`](docs/MANUAL.md#installing-the-paseo-plugin) for the exact dev-loop commands.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every push to `main` and every PR: `build` → `typecheck` → `test` → a
@@ -86,6 +93,11 @@ workflow's release tag format if either changes.
   considering it done, not just synthetic fixtures — see `packages/cli/src/core/opencode-adapter.server.ts`
   and `aider-adapter.server.ts` for adapters that were built and tuned against real, messy production data
   (including a real bug found and fixed that way: non-ASCII text handling in relationship detection).
+- Paseo's plugin API has already broken backward compatibility once (v0.8's client/server/shared split —
+  see `paseo-plugin.json`'s `requirements.paseo` field and `paseo-plugin.d.ts`'s ambient module
+  declarations). If it happens again, verify the actual migration against a real Paseo daemon at the new
+  version — `paseo plugin install`/`ls` reporting `running` is the only real evidence a fix worked, not
+  just a clean typecheck.
 
 ## Reporting issues
 

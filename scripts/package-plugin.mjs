@@ -1,7 +1,10 @@
 #!/usr/bin/env node
-// Packages this repo's Paseo plugin (index.ts, main.client.tsx, src/server/*) into a self-contained
-// directory, then tars it — the artifact `sessionforge wire-paseo` downloads and points a local
-// `paseo plugin install` at, so a user doesn't need to clone this whole monorepo just to get the plugin.
+// Packages this repo's Paseo plugin (index.client.tsx, index.server.ts, client/, server/, shared/) into a
+// self-contained directory, then tars it — the artifact `sessionforge wire-paseo` downloads and points a
+// local `paseo plugin install` at, so a user doesn't need to clone this whole monorepo just to get the
+// plugin. File layout follows Paseo's v0.8+ split client/server/shared architecture (see
+// https://paseo.sh/docs/plugins/v0.8/migration) — "the directory is the boundary": code under client/
+// compiles only into the app bundle, server/ only into the daemon bundle, shared/ into both.
 //
 // This can't just be "git clone the repo and let Paseo build it" (verified empirically): Paseo's
 // git-source plugin install does a fresh checkout and bundles the plugin directly, with no npm-workspace
@@ -24,10 +27,20 @@ const buildDir = join(repoRoot, "build");
 const stageDir = join(buildDir, "paseo-plugin");
 const archivePath = join(buildDir, "sessionforge-paseo-plugin.tar.gz");
 
-// Everything the plugin's own source actually imports (`index.ts`, `main.client.tsx`, `src/server/*`) —
-// verified by reading the actual import statements, not guessed. `tsconfig.json` isn't required at
-// runtime (Paseo transpiles the plugin's TS/TSX on the fly) but costs nothing to include.
-const PLUGIN_FILES = ["paseo-plugin.json", "paseo-plugin.d.ts", "index.ts", "main.client.tsx", "package.json", "tsconfig.json", "src/server"];
+// Everything the plugin's own source actually imports (`index.client.tsx`, `index.server.ts`, `client/`,
+// `server/`, `shared/`) — verified by reading the actual import statements, not guessed. `tsconfig.json`
+// isn't required at runtime (Paseo transpiles the plugin's TS/TSX on the fly) but costs nothing to include.
+const PLUGIN_FILES = [
+  "paseo-plugin.json",
+  "paseo-plugin.d.ts",
+  "index.client.tsx",
+  "index.server.ts",
+  "client",
+  "server",
+  "shared",
+  "package.json",
+  "tsconfig.json",
+];
 
 function main() {
   const cliDist = join(repoRoot, "packages", "cli", "dist");
