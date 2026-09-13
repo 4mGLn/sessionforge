@@ -187,6 +187,14 @@ describe("paseo-wire", () => {
       execFileHandler = (_cmd, _args, callback) => callback(null, jsonResult([]));
       expect(await getPluginStatus("sessionforge")).toBeNull();
     });
+
+    it("raises a diagnosable error, not a raw SyntaxError, when the daemon returns malformed JSON", async () => {
+      // Observed in the wild: two JSON values concatenated on stdout with no separator, e.g. while the
+      // daemon's WebSocket transport is reconnecting mid-command.
+      execFileHandler = (_cmd, _args, callback) => callback(null, { stdout: "{}[]", stderr: "" });
+
+      await expect(getPluginStatus("sessionforge")).rejects.toThrow(/paseo plugin ls --json/);
+    });
   });
 
   describe("pluginInstallDir", () => {

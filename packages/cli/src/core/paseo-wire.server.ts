@@ -10,6 +10,29 @@ const execFileAsync = promisify(execFile);
 export const DEFAULT_PLUGIN_ID = "sessionforge";
 export const PLUGIN_ARCHIVE_NAME = "sessionforge-paseo-plugin.tar.gz";
 
+/**
+ * `paseo ... --json` output can come back malformed while the daemon connection is unstable (observed in
+ * the wild as a "Transport closed" reconnect racing with a `--json` command, leaving two JSON values
+ * concatenated on stdout) — a raw `JSON.parse` then throws an opaque native `SyntaxError` with no clue
+ * which command produced it. This wraps that failure with the command and a snippet of the actual output,
+ * since that's the only way to tell "paseo returned garbage" apart from "sessionforge has a real bug".
+ */
+function parsePaseoJson<T>(raw: string, context: string): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    const snippet = raw.length > 300 ? `${raw.slice(0, 300)}...` : raw;
+    throw new Error(
+      `Failed to parse JSON from \`${context}\`: ${message}\n` +
+        `Raw output: ${JSON.stringify(snippet)}\n` +
+        "This usually means the Paseo daemon connection was unstable when the command ran " +
+        "(e.g. it was restarting or reconnecting) — check `paseo daemon status` and try again.",
+      { cause },
+    );
+  }
+}
+
 /** Where a downloaded plugin gets extracted to before `paseo plugin install` points at it — a stable,
  * reusable path so re-running wire-paseo cleanly replaces a previous install with a newer one. */
 export function pluginInstallDir(): string {
@@ -34,7 +57,7 @@ interface DaemonStatus {
  * guessed, since it's configurable and this must work for both default and custom PASEO_HOME setups. */
 async function getDaemonHome(): Promise<string> {
   const { stdout } = await execFileAsync("paseo", ["daemon", "status", "--json"]);
-  const status = JSON.parse(stdout) as DaemonStatus;
+  const status = parsePaseoJson<DaemonStatus>(stdout, "paseo daemon status --json");
   if (!status.home) throw new Error("`paseo daemon status --json` did not report a home directory.");
   return status.home;
 }
@@ -47,7 +70,7 @@ export async function arePluginsEnabled(): Promise<boolean> {
   const home = await getDaemonHome();
   const configPath = join(home, "config.json");
   const raw = await readFile(configPath, "utf8");
-  const config = JSON.parse(raw) as { pluginsEnabled?: boolean };
+  const config = parsePaseoJson<{ pluginsEnabled?: boolean }>(raw, configPath);
   return config.pluginsEnabled === true;
 }
 
@@ -87,12 +110,12 @@ interface PluginInstallResult {
 
 export async function installPluginDirectory(pluginDir: string, id: string = DEFAULT_PLUGIN_ID): Promise<PluginInstallResult> {
   const { stdout } = await execFileAsync("paseo", ["plugin", "install", pluginDir, "--id", id, "--json"]);
-  return JSON.parse(stdout) as PluginInstallResult;
+  return parsePaseoJson<PluginInstallResult>(stdout, "paseo plugin install --json");
 }
 
 export async function getPluginStatus(id: string = DEFAULT_PLUGIN_ID): Promise<PluginInstallResult | null> {
   const { stdout } = await execFileAsync("paseo", ["plugin", "ls", "--json"]);
-  const plugins = JSON.parse(stdout) as PluginInstallResult[];
+  const plugins = parsePaseoJson<PluginInstallResult[]>(stdout, "paseo plugin ls --json");
   return plugins.find((plugin) => plugin.id === id) ?? null;
 }
 
