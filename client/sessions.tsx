@@ -32,6 +32,32 @@ const SPACING = { 1: 4, 2: 8, 3: 12, 4: 16, 6: 24 };
 const RADIUS = { sm: 6, md: 8, lg: 12, full: 999 };
 const COLUMN = { status: 88, project: 130, created: 92, active: 84, msgs: 52, size: 68 };
 
+type SortColumn = "session" | "status" | "project" | "created" | "active" | "msgs" | "size";
+type SortDirection = "asc" | "desc";
+
+// Columns default to the direction that matches what the server already returns unsorted (created_at
+// DESC) once a user explicitly sorts a date-ish column for the first time — newest-first reads more
+// naturally than oldest-first on first click, same as CREATED's existing default.
+const SORT_DEFAULT_DIRECTION: Record<SortColumn, SortDirection> = {
+  session: "asc",
+  status: "asc",
+  project: "asc",
+  created: "desc",
+  active: "desc",
+  msgs: "desc",
+  size: "desc",
+};
+
+const SORT_ACCESSOR: Record<SortColumn, (session: SessionDto) => string | number> = {
+  session: (session) => (session.title ?? session.firstUserMessage ?? "").toLowerCase(),
+  status: (session) => session.status,
+  project: (session) => session.project.toLowerCase(),
+  created: (session) => session.createdAt,
+  active: (session) => session.lastActivityAt,
+  msgs: (session) => session.messageCount,
+  size: (session) => session.sizeBytes,
+};
+
 const AGENT_LABELS: Record<string, string> = {
   "claude-code": "Claude Code",
   codex: "Codex",
@@ -488,6 +514,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
   const [category, setCategory] = useState<CategoryFilter>("ALL");
   const [agentTab, setAgentTab] = useState<string>(AGENT_TAB_ALL);
   const [viewMode, setViewMode] = useState<"list" | "timeline">("list");
+  const [sort, setSort] = useState<{ column: SortColumn; direction: SortDirection }>({ column: "created", direction: "desc" });
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -718,6 +745,53 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
     () => (agentTab === AGENT_TAB_ALL ? sessions : sessions.filter((s) => s.agent === agentTab)),
     [sessions, agentTab],
   );
+
+  // Starts a new column at the direction that reads most naturally on first click (see
+  // SORT_DEFAULT_DIRECTION); clicking the already-active column flips direction instead.
+  const toggleSort = useCallback((column: SortColumn) => {
+    setSort((prev) => (prev.column === column ? { column, direction: prev.direction === "asc" ? "desc" : "asc" } : { column, direction: SORT_DEFAULT_DIRECTION[column] }));
+  }, []);
+
+  // Closure over `styles`/`sort`/`toggleSort` (not a standalone component) so it can reuse styles.headerText
+  // as-is — that style is computed from `theme` inside this component, not exported for a sibling component
+  // to import. Every sortable column shows a muted neutral icon by default (so the click affordance is
+  // discoverable without first clicking something), which becomes a solid directional arrow once that
+  // column is the active sort. Direction glyphs follow the common spreadsheet convention (Excel's "Sort
+  // A to Z" uses a down arrow, "Z to A" an up arrow): ascending = ▼, descending = ▲.
+  const sortableHeader = (column: SortColumn, label: string, style: object, align: "left" | "right" = "left") => {
+    const isActive = sort.column === column;
+    // One glyph family (↕/↓/↑) for every state — mixing the double-line ⇅ with solid ▲/▼ triangles made the
+    // icon visibly change style, not just direction, the moment a column became active.
+    const icon = isActive ? (sort.direction === "asc" ? "↓" : "↑") : "↕";
+    return (
+      <Pressable
+        style={[
+          style,
+          { flexDirection: "row" as const, alignItems: "center" as const, gap: SPACING[1], justifyContent: align === "right" ? "flex-end" : "flex-start" },
+        ]}
+        onPress={() => toggleSort(column)}
+      >
+        <Text style={styles.headerText} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text style={[styles.headerText, { width: 12, opacity: isActive ? 1 : 0.4 }]}>{icon}</Text>
+      </Pressable>
+    );
+  };
+
+  // Only the List view's table header exposes clickable columns — Timeline groups by day instead of
+  // columns, so it keeps its own day/createdAt ordering (below) regardless of this sort state.
+  const sortedSessions = useMemo(() => {
+    const accessor = SORT_ACCESSOR[sort.column];
+    const factor = sort.direction === "asc" ? 1 : -1;
+    return [...visibleSessions].sort((a, b) => {
+      const left = accessor(a);
+      const right = accessor(b);
+      if (left < right) return -factor;
+      if (left > right) return factor;
+      return 0;
+    });
+  }, [visibleSessions, sort]);
 
   /**
    * Cross-agent timeline (GOAL.md §14): groups the same visibleSessions by the day each one was created,
@@ -1219,7 +1293,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         />
       ) : (
         <FlatList
-          data={visibleSessions}
+          data={sortedSessions}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           // The header used to be a sibling View next to FlatList, sized to match it by hand — but a
@@ -1235,13 +1309,13 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
               <View style={styles.headerRow}>
                 <View style={{ width: 18 }} />
                 {agentTab === AGENT_TAB_ALL ? <View style={{ width: 26 }} /> : null}
-                <Text style={[styles.headerText, { flex: 1 }]}>SESSION</Text>
-                <Text style={[styles.headerText, styles.col(COLUMN.status)]}>STATUS</Text>
-                <Text style={[styles.headerText, styles.col(COLUMN.project)]}>PROJECT</Text>
-                <Text style={[styles.headerText, styles.col(COLUMN.created)]}>CREATED</Text>
-                <Text style={[styles.headerText, styles.col(COLUMN.active)]}>ACTIVE</Text>
-                <Text style={[styles.headerText, styles.col(COLUMN.msgs)]}>MSG</Text>
-                <Text style={[styles.headerText, styles.col(COLUMN.size), { textAlign: "right" }]}>SIZE</Text>
+                {sortableHeader("session", "SESSION", { flex: 1 })}
+                {sortableHeader("status", "STATUS", styles.col(COLUMN.status))}
+                {sortableHeader("project", "PROJECT", styles.col(COLUMN.project))}
+                {sortableHeader("created", "CREATED", styles.col(COLUMN.created))}
+                {sortableHeader("active", "ACTIVE", styles.col(COLUMN.active))}
+                {sortableHeader("msgs", "MSG", styles.col(COLUMN.msgs), "right")}
+                {sortableHeader("size", "SIZE", styles.col(COLUMN.size), "right")}
                 {/* No label needed here — this reserves the same width as each row's Archive/Restore button. */}
                 <View style={{ width: 76 }} />
               </View>
