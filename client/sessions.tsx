@@ -754,19 +754,25 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
 
   // Closure over `styles`/`sort`/`toggleSort` (not a standalone component) so it can reuse styles.headerText
   // as-is — that style is computed from `theme` inside this component, not exported for a sibling component
-  // to import. The arrow glyph reserves its own fixed-width slot even when absent, so clicking a column
-  // doesn't shift every header label sideways as the active arrow appears/disappears next to it.
-  const sortableHeader = (column: SortColumn, label: string, style: object, align: "left" | "right" = "left") => (
-    <Pressable
-      style={[style, { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: align === "right" ? "flex-end" : "flex-start" }]}
-      onPress={() => toggleSort(column)}
-    >
-      <Text style={styles.headerText} numberOfLines={1}>
-        {label}
-      </Text>
-      <Text style={[styles.headerText, { width: 10 }]}>{sort.column === column ? (sort.direction === "asc" ? "▲" : "▼") : ""}</Text>
-    </Pressable>
-  );
+  // to import. Every sortable column shows a muted neutral icon by default (so the click affordance is
+  // discoverable without first clicking something), which becomes a solid directional arrow once that
+  // column is the active sort. Direction glyphs follow the common spreadsheet convention (Excel's "Sort
+  // A to Z" uses a down arrow, "Z to A" an up arrow): ascending = ▼, descending = ▲.
+  const sortableHeader = (column: SortColumn, label: string, style: object, align: "left" | "right" = "left") => {
+    const isActive = sort.column === column;
+    const icon = isActive ? (sort.direction === "asc" ? "▼" : "▲") : "⇅";
+    return (
+      <Pressable
+        style={[style, { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: align === "right" ? "flex-end" : "flex-start" }]}
+        onPress={() => toggleSort(column)}
+      >
+        <Text style={styles.headerText} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text style={[styles.headerText, { width: 10, opacity: isActive ? 1 : 0.4 }]}>{icon}</Text>
+      </Pressable>
+    );
+  };
 
   // Only the List view's table header exposes clickable columns — Timeline groups by day instead of
   // columns, so it keeps its own day/createdAt ordering (below) regardless of this sort state.
