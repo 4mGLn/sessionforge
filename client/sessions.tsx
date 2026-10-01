@@ -760,16 +760,21 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
   // A to Z" uses a down arrow, "Z to A" an up arrow): ascending = ▼, descending = ▲.
   const sortableHeader = (column: SortColumn, label: string, style: object, align: "left" | "right" = "left") => {
     const isActive = sort.column === column;
-    const icon = isActive ? (sort.direction === "asc" ? "▼" : "▲") : "⇅";
+    // One glyph family (↕/↓/↑) for every state — mixing the double-line ⇅ with solid ▲/▼ triangles made the
+    // icon visibly change style, not just direction, the moment a column became active.
+    const icon = isActive ? (sort.direction === "asc" ? "↓" : "↑") : "↕";
     return (
       <Pressable
-        style={[style, { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: align === "right" ? "flex-end" : "flex-start" }]}
+        style={[
+          style,
+          { flexDirection: "row" as const, alignItems: "center" as const, gap: SPACING[1], justifyContent: align === "right" ? "flex-end" : "flex-start" },
+        ]}
         onPress={() => toggleSort(column)}
       >
         <Text style={styles.headerText} numberOfLines={1}>
           {label}
         </Text>
-        <Text style={[styles.headerText, { width: 10, opacity: isActive ? 1 : 0.4 }]}>{icon}</Text>
+        <Text style={[styles.headerText, { width: 12, opacity: isActive ? 1 : 0.4 }]}>{icon}</Text>
       </Pressable>
     );
   };
