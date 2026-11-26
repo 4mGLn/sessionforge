@@ -142,6 +142,10 @@ per-session/per-provider on-disk size. It re-scans Claude Code, Codex, Gemini CL
 every 5 minutes in the background (Aider is included in that rescan too, but only once
 `AIDER_SEARCH_ROOTS` is set).
 
+**Preview cleanup** shows the first five recommendations. If there are more, select **View … more**
+to open the complete list and scroll through it. Each row shows why the session was recommended.
+Close the list to return to the preview. To apply cleanup, select **Move to trash** and confirm.
+
 ## Staying up to date
 
 Detection is automatic, applying it is not: every command other than `check-update`/`update`/`--version`

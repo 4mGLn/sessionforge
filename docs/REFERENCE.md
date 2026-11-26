@@ -125,6 +125,9 @@ Platform support), and CI + an independently-usable CLI package (§19's "be inst
 ways: `paseo plugin install`, or the standalone binary via `install.sh`/`install.ps1`; not published to
 npm).
 
+In the Paseo plugin, the cleanup banner shows the first five candidates from the dry-run result.
+The full preview opens the same result in a virtualized list that renders rows as the user scrolls.
+
 Deferred to Phase 2 per GOAL.md: LLM-assisted classification, and true embedding-based semantic search
 (FTS5 above covers ranked lexical search; embeddings would be a separate, heavier addition).
 
