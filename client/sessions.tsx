@@ -23,6 +23,7 @@ const CATEGORY_FILTERS = ["ALL", "KEEP", "ARCHIVE", "JUNK"] as const;
 type CategoryFilter = (typeof CATEGORY_FILTERS)[number];
 
 const AGENT_TAB_ALL = "ALL";
+const CLEANUP_PREVIEW_LIMIT = 5;
 
 // Matches packages/app/src/styles/theme.ts's FONT_SIZE/SPACING/RADIUS scale and
 // packages/app/src/components/ui/control-geometry.ts's button-size tiers, hand-copied
@@ -520,6 +521,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
   const [loading, setLoading] = useState(false);
   const [rescanning, setRescanning] = useState(false);
   const [cleanupCandidates, setCleanupCandidates] = useState<SessionDto[] | null>(null);
+  const [showCleanupList, setShowCleanupList] = useState(false);
   const [applyingCleanup, setApplyingCleanup] = useState(false);
   const [bulkArchiving, setBulkArchiving] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -603,6 +605,8 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
     const result = await cleanupSessions({ dryRun: true });
     setCleanupCandidates(result.candidates);
   }, [cleanupSessions]);
+
+  const closeCleanupList = useCallback(() => setShowCleanupList(false), []);
 
   const applyCleanup = useCallback(async () => {
     setApplyingCleanup(true);
@@ -974,6 +978,36 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
       },
       cleanupBannerTitle: { color: theme.colors.foreground, fontSize: FONT_SIZE.base, marginBottom: SPACING[1] },
       cleanupBannerActions: { flexDirection: "row" as const, gap: SPACING[2], marginTop: SPACING[2] },
+      cleanupMore: { alignSelf: "flex-start" as const, paddingVertical: SPACING[2] },
+      cleanupMoreText: { color: theme.colors.accent, fontSize: FONT_SIZE.sm, textDecorationLine: "underline" as const },
+      cleanupListBackdrop: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+        padding: SPACING[4],
+      },
+      cleanupListCard: {
+        width: "100%" as const,
+        maxWidth: 680,
+        height: "85%" as const,
+        maxHeight: 720,
+        backgroundColor: theme.colors.surface0,
+        borderRadius: RADIUS.lg,
+        overflow: "hidden" as const,
+      },
+      cleanupListHeader: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: SPACING[2],
+        padding: SPACING[3],
+        borderBottomWidth: 1,
+        borderBottomColor: theme.colors.foregroundMuted,
+      },
+      cleanupListTitle: { flex: 1, color: theme.colors.foreground, fontSize: FONT_SIZE.base, fontWeight: "700" as const },
+      cleanupList: { flex: 1 },
+      cleanupListRow: { padding: SPACING[3], gap: SPACING[1] },
+      cleanupListSeparator: { height: 1, backgroundColor: theme.colors.foregroundMuted, opacity: 0.25 },
       // Floats over the list instead of being inserted inline, so selecting a row never reflows the list.
       bulkBar: {
         position: "absolute" as const,
@@ -1185,12 +1219,24 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
               <Text style={styles.cleanupBannerTitle}>
                 {cleanupCandidates.length} session{cleanupCandidates.length === 1 ? "" : "s"} recommended for cleanup — nothing changed yet.
               </Text>
-              {cleanupCandidates.slice(0, 5).map((candidate) => (
+              {cleanupCandidates.slice(0, CLEANUP_PREVIEW_LIMIT).map((candidate) => (
                 <Text key={candidate.id} style={styles.metaText} numberOfLines={1}>
                   • {candidate.title ?? candidate.firstUserMessage ?? "(untitled)"} — {candidate.classification?.reason}
                 </Text>
               ))}
-              {cleanupCandidates.length > 5 ? <Text style={styles.metaText}>...and {cleanupCandidates.length - 5} more</Text> : null}
+              {cleanupCandidates.length > CLEANUP_PREVIEW_LIMIT ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityHint="Opens the full cleanup preview"
+                  style={styles.cleanupMore}
+                  onPress={() => setShowCleanupList(true)}
+                  disabled={applyingCleanup}
+                >
+                  <Text style={styles.cleanupMoreText}>
+                    View {cleanupCandidates.length - CLEANUP_PREVIEW_LIMIT} more
+                  </Text>
+                </Pressable>
+              ) : null}
             </>
           )}
           <View style={styles.cleanupBannerActions}>
@@ -1411,6 +1457,42 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
           }}
         />
       )}
+
+      {showCleanupList && cleanupCandidates ? (
+        <Modal accessibilityLabel="Cleanup candidates" transparent animationType="fade" onRequestClose={closeCleanupList}>
+          <View style={styles.cleanupListBackdrop}>
+            <View style={styles.cleanupListCard}>
+              <View style={styles.cleanupListHeader}>
+                <Text accessibilityRole="header" style={styles.cleanupListTitle}>
+                  Cleanup candidates ({cleanupCandidates.length})
+                </Text>
+                <Pressable accessibilityRole="button" style={styles.chip(false)} onPress={closeCleanupList}>
+                  <Text style={styles.chipText(false)}>Close</Text>
+                </Pressable>
+              </View>
+              <FlatList
+                data={cleanupCandidates}
+                keyExtractor={(item) => item.id}
+                style={styles.cleanupList}
+                tabIndex={0}
+                accessibilityLabel="Cleanup candidate list"
+                ItemSeparatorComponent={() => <View style={styles.cleanupListSeparator} />}
+                renderItem={({ item }) => (
+                  <View style={styles.cleanupListRow}>
+                    <Text style={styles.title} numberOfLines={2}>
+                      {item.title ?? item.firstUserMessage ?? "(untitled session)"}
+                    </Text>
+                    <Text style={styles.metaText}>
+                      {agentLabel(item.agent)} · {item.project} · {formatDateTime(item.createdAt)}
+                    </Text>
+                    {item.classification ? <Text style={styles.metaText}>{item.classification.reason}</Text> : null}
+                  </View>
+                )}
+              />
+            </View>
+          </View>
+        </Modal>
+      ) : null}
 
       <Modal visible={previewSession !== null} transparent animationType="fade" onRequestClose={() => setPreviewSession(null)}>
         {previewSession ? (
