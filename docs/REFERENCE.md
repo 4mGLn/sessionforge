@@ -127,6 +127,9 @@ npm).
 
 In the Paseo plugin, the cleanup banner shows the first five candidates from the dry-run result.
 The full preview opens the same result in a virtualized list that renders rows as the user scrolls.
+The cleanup RPC returns lightweight candidates for preview and an applied count after confirmation.
+Applying cleanup commits lifecycle and audit updates in one transaction.
+The list RPC reports when discovery is running so a newly empty inventory can refresh automatically.
 
 Deferred to Phase 2 per GOAL.md: LLM-assisted classification, and true embedding-based semantic search
 (FTS5 above covers ranked lexical search; embeddings would be a separate, heavier addition).

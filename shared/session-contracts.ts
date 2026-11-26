@@ -76,7 +76,11 @@ export const SessionFilterSchema = z.object({
 export const listSessionsRpc = defineRpc({
   name: "session.list",
   input: SessionFilterSchema,
-  output: z.object({ sessions: z.array(SessionSchema), relationships: z.array(SessionRelationshipSchema) }),
+  output: z.object({
+    sessions: z.array(SessionSchema),
+    relationships: z.array(SessionRelationshipSchema),
+    discovering: z.boolean(),
+  }),
 });
 
 export const showSessionRpc = defineRpc({
@@ -97,10 +101,15 @@ export const discoverSessionsRpc = defineRpc({
   output: z.object({ scanned: z.number(), created: z.number(), updated: z.number() }),
 });
 
+export const CleanupCandidateSchema = SessionSchema.pick({ id: true, agent: true, project: true, createdAt: true }).extend({
+  label: z.string(),
+  reason: z.string().nullable(),
+});
+
 export const cleanupSessionsRpc = defineRpc({
   name: "session.cleanup",
   input: z.object({ dryRun: z.boolean().default(true) }),
-  output: z.object({ dryRun: z.boolean(), candidates: z.array(SessionSchema), applied: z.array(SessionSchema) }),
+  output: z.object({ candidates: z.array(CleanupCandidateSchema), appliedCount: z.number() }),
 });
 
 export const archiveSessionRpc = defineRpc({

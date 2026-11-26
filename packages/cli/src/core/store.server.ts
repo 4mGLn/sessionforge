@@ -193,6 +193,18 @@ export class SessionStore {
     this.db.close();
   }
 
+  runInTransaction<T>(operation: () => T): T {
+    this.runScript("BEGIN IMMEDIATE");
+    try {
+      const result = operation();
+      this.runScript("COMMIT");
+      return result;
+    } catch (error) {
+      this.runScript("ROLLBACK");
+      throw error;
+    }
+  }
+
   getSession(id: string): Session | null {
     const row = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as unknown as SessionRow | undefined;
     return row ? rowToSession(row) : null;

@@ -1,9 +1,10 @@
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Image, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import {
   archiveSessionRpc,
+  CleanupCandidateSchema,
   cleanupSessionsRpc,
   deleteSessionsRpc,
   discoverSessionsRpc,
@@ -16,6 +17,7 @@ import {
 import type { z } from "zod";
 
 type SessionDto = z.infer<typeof SessionSchema>;
+type CleanupCandidate = z.infer<typeof CleanupCandidateSchema>;
 type RelationshipDto = z.infer<typeof SessionRelationshipSchema>;
 type Tone = "neutral" | "danger" | "accent";
 
@@ -518,11 +520,17 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
   const [sort, setSort] = useState<{ column: SortColumn; direction: SortDirection }>({ column: "created", direction: "desc" });
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+  const [waitingForDiscovery, setWaitingForDiscovery] = useState(false);
+  const listRequest = useRef(0);
+  const listFilter = useRef({ category, query });
   const [rescanning, setRescanning] = useState(false);
-  const [cleanupCandidates, setCleanupCandidates] = useState<SessionDto[] | null>(null);
+  const [cleanupCandidates, setCleanupCandidates] = useState<CleanupCandidate[] | null>(null);
   const [showCleanupList, setShowCleanupList] = useState(false);
-  const [applyingCleanup, setApplyingCleanup] = useState(false);
+  const [cleanupPhase, setCleanupPhase] = useState<"preview" | "apply" | null>(null);
+  const cleanupInFlight = useRef(false);
+  const [cleanupCount, setCleanupCount] = useState<number | null>(null);
   const [bulkArchiving, setBulkArchiving] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [previewSession, setPreviewSession] = useState<SessionDto | null>(null);
@@ -575,47 +583,92 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
   }, [previewSessionId, showSession]);
 
   const refresh = useCallback(async () => {
+    const { category, query } = listFilter.current;
+    const request = ++listRequest.current;
     setLoading(true);
+    setListError(null);
     try {
       const result = await listSessions(
         category === "ALL" ? { query: query || undefined } : { query: query || undefined, category },
       );
+      if (request !== listRequest.current) return;
       setSessions(result.sessions);
       setRelationships(result.relationships);
+      setWaitingForDiscovery((waiting) =>
+        result.discovering && category === "ALL" && !query.trim() && (waiting || result.sessions.length === 0),
+      );
+    } catch (error) {
+      if (request !== listRequest.current) return;
+      setWaitingForDiscovery(false);
+      setListError(`Could not load sessions: ${errorMessage(error)}`);
     } finally {
-      setLoading(false);
+      if (request === listRequest.current) setLoading(false);
     }
-  }, [listSessions, query, category]);
+  }, [listSessions]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    listFilter.current = { category, query };
+    void refresh();
+    return () => {
+      listRequest.current += 1;
+    };
+  }, [category, query, refresh]);
+
+  useEffect(() => {
+    if (!waitingForDiscovery || loading) return;
+    const timer = setTimeout(refresh, 2000);
+    return () => clearTimeout(timer);
+  }, [waitingForDiscovery, loading, sessions, refresh]);
 
   const rescan = useCallback(async () => {
     setRescanning(true);
+    setActionError(null);
     try {
       await discoverSessions({});
-      await refresh();
+    } catch (error) {
+      setActionError(`Could not finish the rescan: ${errorMessage(error)}`);
     } finally {
+      await refresh();
       setRescanning(false);
     }
   }, [discoverSessions, refresh]);
 
   const previewCleanup = useCallback(async () => {
-    const result = await cleanupSessions({ dryRun: true });
-    setCleanupCandidates(result.candidates);
+    if (cleanupInFlight.current) return;
+    cleanupInFlight.current = true;
+    setCleanupPhase("preview");
+    setCleanupCandidates(null);
+    setCleanupCount(null);
+    setActionError(null);
+    try {
+      const result = await cleanupSessions({ dryRun: true });
+      setCleanupCandidates(result.candidates);
+    } catch (error) {
+      setActionError(`Could not preview cleanup: ${errorMessage(error)}`);
+    } finally {
+      cleanupInFlight.current = false;
+      setCleanupPhase(null);
+    }
   }, [cleanupSessions]);
 
   const closeCleanupList = useCallback(() => setShowCleanupList(false), []);
 
   const applyCleanup = useCallback(async () => {
-    setApplyingCleanup(true);
+    if (cleanupInFlight.current) return;
+    cleanupInFlight.current = true;
+    setCleanupPhase("apply");
+    setActionError(null);
+    setCleanupCandidates(null);
     try {
-      await cleanupSessions({ dryRun: false });
-      setCleanupCandidates(null);
+      const result = await cleanupSessions({ dryRun: false });
+      await refresh();
+      setCleanupCount(result.appliedCount);
+    } catch (error) {
+      setActionError(`Could not confirm the cleanup result: ${errorMessage(error)}. Preview cleanup again to see the current candidates.`);
       await refresh();
     } finally {
-      setApplyingCleanup(false);
+      cleanupInFlight.current = false;
+      setCleanupPhase(null);
     }
   }, [cleanupSessions, refresh]);
 
@@ -970,6 +1023,13 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
       actionErrorText: { flex: 1, color: theme.colors.statusDanger, fontSize: FONT_SIZE.sm },
       actionErrorDismiss: { paddingHorizontal: SPACING[2], paddingVertical: SPACING[1] },
       actionErrorDismissText: { color: theme.colors.statusDanger, fontSize: FONT_SIZE.sm, fontWeight: "500" as const },
+      statusBanner: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: SPACING[2],
+        paddingHorizontal: layout.compact ? SPACING[3] : SPACING[4],
+        paddingVertical: SPACING[2],
+      },
       cleanupBanner: {
         padding: layout.compact ? SPACING[3] : SPACING[4],
         gap: SPACING[1],
@@ -1156,6 +1216,12 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
     [theme, layout.compact],
   );
 
+  let progressMessage: string | null = null;
+  if (cleanupPhase === "preview") progressMessage = "Finding cleanup candidates…";
+  else if (cleanupPhase === "apply") progressMessage = "Moving sessions to trash…";
+  else if (rescanning || waitingForDiscovery) progressMessage = "Discovering sessions…";
+  else if (loading) progressMessage = "Loading sessions…";
+
   return (
     <View style={styles.screen}>
       <View style={styles.toolbar}>
@@ -1173,11 +1239,17 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
               <Text style={styles.chipText(category === filter)}>{filter}</Text>
             </Pressable>
           ))}
-          <Pressable style={styles.buttonPrimary} onPress={rescan} disabled={rescanning}>
+          <Pressable style={styles.buttonPrimary} onPress={rescan} disabled={rescanning || cleanupPhase !== null}>
             <Text style={styles.buttonPrimaryText}>{rescanning ? "Scanning..." : "Rescan"}</Text>
           </Pressable>
-          <Pressable style={styles.buttonPrimary} onPress={previewCleanup}>
-            <Text style={styles.buttonPrimaryText}>Preview cleanup</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ busy: cleanupPhase === "preview" }}
+            style={styles.buttonPrimary}
+            onPress={previewCleanup}
+            disabled={cleanupPhase !== null || rescanning}
+          >
+            <Text style={styles.buttonPrimaryText}>{cleanupPhase === "preview" ? "Preparing preview…" : "Preview cleanup"}</Text>
           </Pressable>
         </View>
         <View style={styles.toolbarRow}>
@@ -1201,6 +1273,28 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         </View>
       </View>
 
+      {progressMessage ? (
+        <View style={styles.statusBanner} role="status" accessibilityLiveRegion="polite">
+          <ActivityIndicator color={theme.colors.accent} size="small" />
+          <Text style={styles.metaText}>{progressMessage}</Text>
+        </View>
+      ) : cleanupCount !== null ? (
+        <View style={styles.statusBanner} role="status" accessibilityLiveRegion="polite">
+          <Text style={styles.metaText}>
+            {cleanupCount === 1 ? "Moved 1 session to trash." : `Moved ${cleanupCount} sessions to trash.`}
+          </Text>
+        </View>
+      ) : null}
+
+      {listError ? (
+        <View style={styles.actionErrorBanner}>
+          <Text style={styles.actionErrorText} accessibilityRole="alert">{listError}</Text>
+          <Pressable style={styles.actionErrorDismiss} accessibilityRole="button" onPress={refresh}>
+            <Text style={styles.actionErrorDismissText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {actionError ? (
         <View style={styles.actionErrorBanner}>
           <Text style={styles.actionErrorText}>{actionError}</Text>
@@ -1221,7 +1315,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
               </Text>
               {cleanupCandidates.slice(0, CLEANUP_PREVIEW_LIMIT).map((candidate) => (
                 <Text key={candidate.id} style={styles.metaText} numberOfLines={1}>
-                  • {candidate.title ?? candidate.firstUserMessage ?? "(untitled)"} — {candidate.classification?.reason}
+                  • {candidate.label}{candidate.reason ? ` — ${candidate.reason}` : ""}
                 </Text>
               ))}
               {cleanupCandidates.length > CLEANUP_PREVIEW_LIMIT ? (
@@ -1230,7 +1324,6 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
                   accessibilityHint="Opens the full cleanup preview"
                   style={styles.cleanupMore}
                   onPress={() => setShowCleanupList(true)}
-                  disabled={applyingCleanup}
                 >
                   <Text style={styles.cleanupMoreText}>
                     View {cleanupCandidates.length - CLEANUP_PREVIEW_LIMIT} more
@@ -1241,8 +1334,8 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
           )}
           <View style={styles.cleanupBannerActions}>
             {cleanupCandidates.length > 0 ? (
-              <Pressable style={styles.rowAction("danger")} onPress={requestApplyCleanup} disabled={applyingCleanup}>
-                <Text style={styles.rowActionText("danger")}>{applyingCleanup ? "Applying..." : "Move to trash"}</Text>
+              <Pressable style={styles.rowAction("danger")} onPress={requestApplyCleanup} disabled={rescanning}>
+                <Text style={styles.rowActionText("danger")}>Move to trash</Text>
               </Pressable>
             ) : null}
             <Pressable style={styles.chip(false)} onPress={dismissCleanupPreview}>
@@ -1267,8 +1360,10 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
         </View>
       ) : null}
 
-      {!loading && visibleSessions.length === 0 ? (
-        <Text style={styles.empty}>No sessions found. Try Rescan.</Text>
+      {visibleSessions.length === 0 ? (
+        loading || waitingForDiscovery || rescanning || listError ? null : (
+          <Text style={styles.empty}>No sessions found. Try Rescan.</Text>
+        )
       ) : viewMode === "timeline" ? (
         <FlatList
           data={timelineRows}
@@ -1480,12 +1575,12 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
                 renderItem={({ item }) => (
                   <View style={styles.cleanupListRow}>
                     <Text style={styles.title} numberOfLines={2}>
-                      {item.title ?? item.firstUserMessage ?? "(untitled session)"}
+                      {item.label}
                     </Text>
                     <Text style={styles.metaText}>
                       {agentLabel(item.agent)} · {item.project} · {formatDateTime(item.createdAt)}
                     </Text>
-                    {item.classification ? <Text style={styles.metaText}>{item.classification.reason}</Text> : null}
+                    {item.reason ? <Text style={styles.metaText}>{item.reason}</Text> : null}
                   </View>
                 )}
               />

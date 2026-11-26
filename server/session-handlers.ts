@@ -11,7 +11,7 @@ import {
   runCleanup,
   runDiscovery,
 } from "@aadaa88/sessionforge";
-import type { SessionFilter } from "@aadaa88/sessionforge";
+import type { DiscoverResult, SessionFilter } from "@aadaa88/sessionforge";
 
 const ACTOR = "paseo-plugin";
 const ADAPTERS = [new ClaudeCodeAdapter(), new CodexAdapter(), new GeminiCliAdapter(), new OpenCodeAdapter(), new AiderAdapter()];
@@ -19,6 +19,7 @@ const DISCOVERY_INTERVAL_MS = 5 * 60 * 1000;
 
 let storeSingleton: SessionStore | null = null;
 let backgroundInterval: ReturnType<typeof setInterval> | null = null;
+let discoveryInFlight: Promise<DiscoverResult> | null = null;
 
 function store(): SessionStore {
   if (!storeSingleton) storeSingleton = new SessionStore();
@@ -28,11 +29,11 @@ function store(): SessionStore {
 
 function ensureBackgroundDiscovery(): void {
   if (backgroundInterval || !storeSingleton) return;
-  runDiscovery(storeSingleton, ADAPTERS).catch((error: unknown) => {
+  discoverSessions().catch((error: unknown) => {
     console.error("SessionForge: initial discovery failed", error);
   });
   backgroundInterval = setInterval(() => {
-    runDiscovery(store(), ADAPTERS).catch((error: unknown) => {
+    discoverSessions().catch((error: unknown) => {
       console.error("SessionForge: periodic discovery failed", error);
     });
   }, DISCOVERY_INTERVAL_MS);
@@ -47,7 +48,12 @@ export function stopBackgroundDiscovery(): void {
 }
 
 export async function listSessions(input: SessionFilter) {
-  return { sessions: store().listSessions(input), relationships: store().listAllRelationships() };
+  const inventory = store();
+  return {
+    sessions: inventory.listSessions(input),
+    relationships: inventory.listAllRelationships(),
+    discovering: discoveryInFlight !== null,
+  };
 }
 
 export async function showSession(input: { id: string }) {
@@ -58,12 +64,33 @@ export async function searchSessions(input: { query: string }) {
   return { sessions: store().listSessions({ query: input.query }) };
 }
 
-export async function discoverSessions() {
-  return runDiscovery(store(), ADAPTERS);
+export function discoverSessions(): Promise<DiscoverResult> {
+  if (!discoveryInFlight) {
+    // Defer opening the store until discoveryInFlight is set, so the first manual and background
+    // requests share the same scan.
+    discoveryInFlight = Promise.resolve()
+      .then(() => runDiscovery(store(), ADAPTERS))
+      .finally(() => {
+        discoveryInFlight = null;
+      });
+  }
+  return discoveryInFlight;
 }
 
 export async function cleanupSessions(input: { dryRun: boolean }) {
-  return runCleanup(store(), ACTOR, input.dryRun);
+  const result = runCleanup(store(), ACTOR, input.dryRun);
+  if (!result.dryRun) return { candidates: [], appliedCount: result.applied.length };
+  return {
+    candidates: result.candidates.map((session) => ({
+      id: session.id,
+      agent: session.agent,
+      project: session.project,
+      createdAt: session.createdAt,
+      label: session.title ?? session.firstUserMessage ?? "(untitled session)",
+      reason: session.classification?.reason ?? null,
+    })),
+    appliedCount: 0,
+  };
 }
 
 export async function archiveSessionHandler(input: { id: string; reason?: string }) {
