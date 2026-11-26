@@ -140,11 +140,13 @@ actions in both views, a click-to-preview dialog showing detected related sessio
 by recommendation, rescan, dry-run cleanup preview with confirmation, archive/restore/delete, and
 per-session/per-provider on-disk size. It re-scans Claude Code, Codex, Gemini CLI, and OpenCode sessions
 every 5 minutes in the background (Aider is included in that rescan too, but only once
-`AIDER_SEARCH_ROOTS` is set).
+`AIDER_SEARCH_ROOTS` is set). Sessions load when the sidebar opens. An empty inventory refreshes
+automatically during the first discovery. If loading fails, select **Retry**.
 
 **Preview cleanup** shows the first five recommendations. If there are more, select **View … more**
 to open the complete list and scroll through it. Each row shows why the session was recommended.
 Close the list to return to the preview. To apply cleanup, select **Move to trash** and confirm.
+The preview and move each show a progress indicator, and the move reports how many sessions it changed.
 
 ## Staying up to date
 

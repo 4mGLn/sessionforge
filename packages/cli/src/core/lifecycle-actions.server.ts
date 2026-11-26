@@ -147,13 +147,15 @@ export interface CleanupResult {
 
 /** GOAL §11/§12: dry-run by default. Only trashes sessions when `dryRun` is explicitly false. */
 export function runCleanup(store: SessionStore, actor: string, dryRun: boolean): CleanupResult {
-  const candidates = junkCandidates(store);
   if (dryRun) {
-    return { dryRun: true, candidates, applied: [] };
+    return { dryRun: true, candidates: junkCandidates(store), applied: [] };
   }
 
-  const applied = candidates.map((session) =>
-    trashSession(store, session.id, actor, session.classification?.reason ?? null),
-  );
-  return { dryRun: false, candidates, applied };
+  return store.runInTransaction(() => {
+    const candidates = junkCandidates(store);
+    const applied = candidates.map((session) =>
+      trashSession(store, session.id, actor, session.classification?.reason ?? null),
+    );
+    return { dryRun: false, candidates, applied };
+  });
 }

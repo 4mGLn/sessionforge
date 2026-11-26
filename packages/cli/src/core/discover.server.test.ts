@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClaudeCodeAdapter } from "./claude-adapter.server.js";
 import { runDiscovery } from "./discover.server.js";
 import { archiveSession, restoreSession, runCleanup } from "./lifecycle-actions.server.js";
@@ -106,6 +106,20 @@ describe("discover + lifecycle actions (integration)", () => {
 
     const audit = store.listAudit();
     expect(audit.some((entry) => entry.action === "TRASH")).toBe(true);
+  });
+
+  it("rolls back lifecycle and audit changes when applying cleanup fails", async () => {
+    await runDiscovery(store, [new ClaudeCodeAdapter()]);
+    const recordAudit = store.recordAudit.bind(store);
+    vi.spyOn(store, "recordAudit").mockImplementationOnce((entry) => {
+      recordAudit(entry);
+      throw new Error("interrupted cleanup");
+    });
+
+    expect(() => runCleanup(store, "test", false)).toThrow("interrupted cleanup");
+    expect(store.listSessions({ lifecycle: "JUNK" })).toHaveLength(0);
+    expect(store.listAudit()).toHaveLength(0);
+    expect(runCleanup(store, "test", false).applied).toHaveLength(1);
   });
 
   it("archive then restore round-trips cleanly", async () => {
