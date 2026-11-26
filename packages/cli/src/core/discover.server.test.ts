@@ -85,6 +85,29 @@ describe("discover + lifecycle actions (integration)", () => {
     expect(keep?.classification?.category).toBe("KEEP");
   });
 
+  it("makes committed sessions available while a large discovery is still running", async () => {
+    const adapter = new ClaudeCodeAdapter();
+    const [fixture] = await adapter.discover();
+    const total = 260;
+    vi.spyOn(adapter, "discover").mockResolvedValue(
+      Array.from({ length: total }, (_, index) => ({ ...fixture, nativeSessionId: `batch-${index}` })),
+    );
+
+    let sessionsDuringDiscovery = 0;
+    const upsert = store.upsertSession.bind(store);
+    vi.spyOn(store, "upsertSession").mockImplementationOnce((session) => {
+      upsert(session);
+      setImmediate(() => {
+        sessionsDuringDiscovery = store.listSessions().length;
+      });
+    });
+
+    await expect(runDiscovery(store, [adapter])).resolves.toEqual({ scanned: total, created: total, updated: 0 });
+    expect(sessionsDuringDiscovery).toBeGreaterThan(0);
+    expect(sessionsDuringDiscovery).toBeLessThan(total);
+    expect(store.listSessions()).toHaveLength(total);
+  });
+
   it("cleanup dry-run reports junk candidates without mutating anything", async () => {
     await runDiscovery(store, [new ClaudeCodeAdapter()]);
     const result = runCleanup(store, "test", true);

@@ -12,6 +12,7 @@ import {
   runDiscovery,
 } from "@aadaa88/sessionforge";
 import type { DiscoverResult, SessionFilter } from "@aadaa88/sessionforge";
+import { setImmediate } from "node:timers/promises";
 
 const ACTOR = "paseo-plugin";
 const ADAPTERS = [new ClaudeCodeAdapter(), new CodexAdapter(), new GeminiCliAdapter(), new OpenCodeAdapter(), new AiderAdapter()];
@@ -66,9 +67,8 @@ export async function searchSessions(input: { query: string }) {
 
 export function discoverSessions(): Promise<DiscoverResult> {
   if (!discoveryInFlight) {
-    // Defer opening the store until discoveryInFlight is set, so the first manual and background
-    // requests share the same scan.
-    discoveryInFlight = Promise.resolve()
+    // Let the cached list reply go out before discovery starts touching session files and SQLite.
+    discoveryInFlight = setImmediate()
       .then(() => runDiscovery(store(), ADAPTERS))
       .finally(() => {
         discoveryInFlight = null;
