@@ -358,13 +358,15 @@ export class SessionStore {
 
   /** Wholesale replace — relationships are recomputed fresh on every discovery pass, not incrementally maintained. */
   replaceRelationships(relationships: readonly SessionRelationship[]): void {
-    this.runScript("DELETE FROM session_relationships");
-    const insert = this.db.prepare(
-      "INSERT INTO session_relationships (session_id, related_session_id, kind, confidence, reason, detected_at) VALUES (?,?,?,?,?,?)",
-    );
-    for (const rel of relationships) {
-      insert.run(rel.sessionId, rel.relatedSessionId, rel.kind, rel.confidence, rel.reason, rel.detectedAt);
-    }
+    this.runInTransaction(() => {
+      this.runScript("DELETE FROM session_relationships");
+      const insert = this.db.prepare(
+        "INSERT INTO session_relationships (session_id, related_session_id, kind, confidence, reason, detected_at) VALUES (?,?,?,?,?,?)",
+      );
+      for (const rel of relationships) {
+        insert.run(rel.sessionId, rel.relatedSessionId, rel.kind, rel.confidence, rel.reason, rel.detectedAt);
+      }
+    });
   }
 
   /** Both directions: relationships where this session is the older/original side, and where it's the newer/related side. */

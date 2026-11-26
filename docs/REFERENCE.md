@@ -130,6 +130,8 @@ The full preview opens the same result in a virtualized list that renders rows a
 The cleanup RPC returns lightweight candidates for preview and an applied count after confirmation.
 Applying cleanup commits lifecycle and audit updates in one transaction.
 The list RPC reports when discovery is running so a newly empty inventory can refresh automatically.
+Discovery defers its first scan until the cached list can respond. It writes sessions in batches
+and yields between them so list and cleanup requests can run during the scan.
 
 Deferred to Phase 2 per GOAL.md: LLM-assisted classification, and true embedding-based semantic search
 (FTS5 above covers ranked lexical search; embeddings would be a separate, heavier addition).

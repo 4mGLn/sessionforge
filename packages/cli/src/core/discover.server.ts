@@ -1,4 +1,5 @@
-import type { AgentAdapter, ClassificationCategory, DiscoveredSession, Session, SessionLifecycle } from "./types.server.js";
+import { setImmediate } from "node:timers/promises";
+import type { AgentAdapter, ClassificationCategory, DiscoveredSession, Session, SessionActivity, SessionLifecycle } from "./types.server.js";
 import { detectActivity } from "./activity.server.js";
 import { classifySession } from "./classify.server.js";
 import { detectRelationships } from "./relationships.server.js";
@@ -7,6 +8,7 @@ import { SessionStore } from "./store.server.js";
 
 /** Lifecycle values the user (or a cleanup action) has explicitly set. Discovery scans must not silently overwrite these. */
 const STICKY_LIFECYCLES: ReadonlySet<SessionLifecycle> = new Set(["ARCHIVED", "JUNK", "DUPLICATE", "SUPERSEDED"]);
+const DISCOVERY_BATCH_SIZE = 128;
 
 export function defaultLifecycle(status: Session["status"], category: ClassificationCategory): SessionLifecycle {
   if (status === "ACTIVE" || status === "RECENT") return "ONGOING";
@@ -18,8 +20,7 @@ function sessionId(discovered: DiscoveredSession): string {
   return `${discovered.agent}:${discovered.nativeSessionId}`;
 }
 
-async function toSession(discovered: DiscoveredSession, existing: Session | null): Promise<Session> {
-  const activity = await detectActivity({ agentId: discovered.agent, workspace: discovered.workspace, lastActivityAt: discovered.lastActivityAt });
+function toSession(discovered: DiscoveredSession, activity: SessionActivity, existing: Session | null): Session {
   const classification = classifySession({
     status: activity.status,
     lastActivityAt: discovered.lastActivityAt,
@@ -82,14 +83,27 @@ export async function runDiscovery(store: SessionStore, adapters: readonly Agent
 
   for (const adapter of adapters) {
     const discovered = await adapter.discover();
-    for (const item of discovered) {
-      scanned += 1;
-      const id = sessionId(item);
-      const existing = store.getSession(id);
-      const session = await toSession(item, existing);
-      store.upsertSession(session);
-      if (existing) updated += 1;
-      else created += 1;
+    for (let offset = 0; offset < discovered.length; offset += DISCOVERY_BATCH_SIZE) {
+      const batch: { item: DiscoveredSession; activity: SessionActivity }[] = [];
+      for (const item of discovered.slice(offset, offset + DISCOVERY_BATCH_SIZE)) {
+        const activity = await detectActivity({
+          agentId: item.agent,
+          workspace: item.workspace,
+          lastActivityAt: item.lastActivityAt,
+        });
+        batch.push({ item, activity });
+      }
+      // Read each lifecycle just before writing it, since the user can take action while probes run.
+      store.runInTransaction(() => {
+        for (const { item, activity } of batch) {
+          const existing = store.getSession(sessionId(item));
+          store.upsertSession(toSession(item, activity, existing));
+          if (existing) updated += 1;
+          else created += 1;
+        }
+      });
+      scanned += batch.length;
+      await setImmediate();
     }
   }
 
