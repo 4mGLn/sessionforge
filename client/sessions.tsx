@@ -453,6 +453,7 @@ function ConfirmDialog({ theme, title, message, confirmLabel, onConfirm, onCance
       card: {
         width: 420,
         maxWidth: "100%" as const,
+        maxHeight: "85%" as const,
         backgroundColor: theme.colors.surface0,
         borderRadius: RADIUS.lg,
         borderWidth: 1,
@@ -462,6 +463,7 @@ function ConfirmDialog({ theme, title, message, confirmLabel, onConfirm, onCance
       },
       title: { color: theme.colors.foreground, fontSize: FONT_SIZE.base + 2, fontWeight: "700" as const, marginBottom: SPACING[2] },
       message: { color: theme.colors.foreground, fontSize: FONT_SIZE.base, marginBottom: SPACING[4] },
+      messageScroll: { flexGrow: 0, flexShrink: 1 },
       actions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, gap: SPACING[2] },
       cancel: {
         paddingHorizontal: SPACING[3],
@@ -488,12 +490,14 @@ function ConfirmDialog({ theme, title, message, confirmLabel, onConfirm, onCance
     <Pressable style={styles.backdrop} onPress={onCancel}>
       <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
         <Text style={styles.title}>{title}</Text>
-        <Text style={styles.message}>{message}</Text>
+        <ScrollView style={styles.messageScroll}>
+          <Text style={styles.message}>{message}</Text>
+        </ScrollView>
         <View style={styles.actions}>
-          <Pressable style={styles.cancel} onPress={onCancel}>
+          <Pressable accessibilityRole="button" style={styles.cancel} onPress={onCancel}>
             <Text style={styles.cancelText}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.confirm} onPress={onConfirm}>
+          <Pressable accessibilityRole="button" style={styles.confirm} onPress={onConfirm}>
             <Text style={styles.confirmText}>{confirmLabel}</Text>
           </Pressable>
         </View>
@@ -533,6 +537,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
   const [cleanupCount, setCleanupCount] = useState<number | null>(null);
   const [bulkArchiving, setBulkArchiving] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const deleteInFlight = useRef(false);
   const [previewSession, setPreviewSession] = useState<SessionDto | null>(null);
   const [previewRelationships, setPreviewRelationships] = useState<RelationshipDto[]>([]);
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; confirmLabel: string; run: () => void } | null>(
@@ -653,14 +658,14 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
 
   const closeCleanupList = useCallback(() => setShowCleanupList(false), []);
 
-  const applyCleanup = useCallback(async () => {
+  const applyCleanup = useCallback(async (reviewedIds: string[]) => {
     if (cleanupInFlight.current) return;
     cleanupInFlight.current = true;
     setCleanupPhase("apply");
     setActionError(null);
     setCleanupCandidates(null);
     try {
-      const result = await cleanupSessions({ dryRun: false });
+      const result = await cleanupSessions({ dryRun: false, reviewedIds });
       await refresh();
       setCleanupCount(result.appliedCount);
     } catch (error) {
@@ -675,10 +680,10 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
   const requestApplyCleanup = useCallback(() => {
     if (!cleanupCandidates || cleanupCandidates.length === 0) return;
     setConfirmAction({
-      title: "Move sessions to trash?",
-      message: `${cleanupCandidates.length} session(s) will be marked JUNK. Nothing is deleted from disk — only SessionForge's own record of them changes — and you can restore any of them anytime from the JUNK filter.`,
-      confirmLabel: "Move to trash",
-      run: applyCleanup,
+      title: "Mark cleanup candidates as JUNK?",
+      message: `Mark up to ${cleanupCandidates.length} reviewed sessions as JUNK in SessionForge. Their history files stay in place. You can restore sessions from the JUNK filter.`,
+      confirmLabel: "Mark as JUNK",
+      run: () => void applyCleanup(cleanupCandidates.map((candidate) => candidate.id)),
     });
   }, [cleanupCandidates, applyCleanup]);
 
@@ -752,31 +757,58 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
     });
   }, [selected, archiveSelected]);
 
-  const deleteSelected = useCallback(async () => {
+  const deleteSelected = useCallback(async function moveFiles(ids: string[], confirmedProtectedIds?: string[]) {
+    if (deleteInFlight.current) return;
+    deleteInFlight.current = true;
     setActionError(null);
     setBulkDeleting(true);
     try {
-      const result = await deleteSessionsRpcCall({ ids: Array.from(selected) });
+      const result = await deleteSessionsRpcCall({ ids, fileMoveConfirmed: true, confirmedProtectedIds });
       clearSelection();
       await refresh();
-      if (result.failed.length > 0) {
-        const failures = result.failed.map((f) => ({ label: sessionLabel(f.id), reason: f.error }));
+      const failures = result.failed
+        .filter((failure) => !failure.confirmation)
+        .map((failure) => ({ label: sessionLabel(failure.id), reason: failure.error }));
+      if (failures.length > 0) {
         setActionError(`Currently impossible to delete: ${summarizeFailures(failures)}`);
       }
+      const protectedFiles = result.failed.flatMap(({ id, error, confirmation }) =>
+        confirmation ? [{ id, reason: error, ...confirmation }] : [],
+      );
+      if (protectedFiles.length > 0) {
+        const protectedIds = protectedFiles.map((file) => file.id);
+        const details = protectedFiles.map((file) => `• ${file.label.slice(0, 120)} (${file.project}) — ${file.reason}`).join("\n");
+        setConfirmAction({
+          title: "Move protected histories to system Trash?",
+          message: `Held back ${protectedFiles.length} session file(s). Moving these files can break history and prevent a session from resuming.\n\n${details}`,
+          confirmLabel: "Move protected files",
+          run: () => void moveFiles(protectedIds, protectedIds),
+        });
+      }
+    } catch (error) {
+      setActionError(`Could not complete the file move: ${errorMessage(error)}`);
+      await refresh();
     } finally {
+      deleteInFlight.current = false;
       setBulkDeleting(false);
     }
-  }, [selected, deleteSessionsRpcCall, clearSelection, refresh, sessionLabel]);
+  }, [deleteSessionsRpcCall, clearSelection, refresh, sessionLabel]);
 
   const requestDeleteSelected = useCallback(() => {
     if (selected.size === 0) return;
+    const ids = Array.from(selected);
+    const visibleIds = new Set(sessions
+      .filter((session) => agentTab === AGENT_TAB_ALL || session.agent === agentTab)
+      .map((session) => session.id));
+    const hiddenCount = ids.filter((id) => !visibleIds.has(id)).length;
+    const hidden = hiddenCount ? ` ${hiddenCount} selected session(s) are outside your current view.` : "";
     setConfirmAction({
-      title: "Delete selected sessions?",
-      message: `${selected.size} session(s) will be removed from SessionForge and their files moved to your system's Trash. SessionForge cannot restore them from here — recovery, if any, depends on your OS trash.`,
-      confirmLabel: "Delete",
-      run: deleteSelected,
+      title: "Move selected history files to system Trash?",
+      message: `This acts on ${ids.length} selected session(s) and removes their history files from the paths used to resume them.${hidden} Protected histories require separate approval.`,
+      confirmLabel: "Move files to Trash",
+      run: () => void deleteSelected(ids),
     });
-  }, [selected, deleteSelected]);
+  }, [selected, sessions, agentTab, deleteSelected]);
 
   const agentTabs = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1218,7 +1250,8 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
 
   let progressMessage: string | null = null;
   if (cleanupPhase === "preview") progressMessage = "Finding cleanup candidates…";
-  else if (cleanupPhase === "apply") progressMessage = "Moving sessions to trash…";
+  else if (cleanupPhase === "apply") progressMessage = "Marking sessions as JUNK…";
+  else if (bulkDeleting) progressMessage = "Checking and moving history files…";
   else if (rescanning || waitingForDiscovery) progressMessage = "Discovering sessions…";
   else if (loading) progressMessage = "Loading sessions…";
 
@@ -1281,7 +1314,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
       ) : cleanupCount !== null ? (
         <View style={styles.statusBanner} role="status" accessibilityLiveRegion="polite">
           <Text style={styles.metaText}>
-            {cleanupCount === 1 ? "Moved 1 session to trash." : `Moved ${cleanupCount} sessions to trash.`}
+            {cleanupCount === 1 ? "Marked 1 session as JUNK." : `Marked ${cleanupCount} sessions as JUNK.`}
           </Text>
         </View>
       ) : null}
@@ -1335,7 +1368,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
           <View style={styles.cleanupBannerActions}>
             {cleanupCandidates.length > 0 ? (
               <Pressable style={styles.rowAction("danger")} onPress={requestApplyCleanup} disabled={rescanning}>
-                <Text style={styles.rowActionText("danger")}>Move to trash</Text>
+                <Text style={styles.rowActionText("danger")}>Mark as JUNK</Text>
               </Pressable>
             ) : null}
             <Pressable style={styles.chip(false)} onPress={dismissCleanupPreview}>
@@ -1355,7 +1388,7 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
             <Text style={styles.bulkBarButtonText(true)}>{bulkArchiving ? "Archiving..." : "Archive selected"}</Text>
           </Pressable>
           <Pressable style={styles.bulkBarButtonDanger} onPress={requestDeleteSelected} disabled={bulkDeleting}>
-            <Text style={styles.bulkBarButtonDangerText}>{bulkDeleting ? "Deleting..." : "Delete selected"}</Text>
+            <Text style={styles.bulkBarButtonDangerText}>{bulkDeleting ? "Moving files…" : "Trash history files"}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -1401,6 +1434,9 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
               <View style={styles.timelineEntry(isSelected)}>
                 <Pressable
                   style={styles.checkbox(isSelected)}
+                  accessibilityRole="checkbox"
+                  accessibilityLabel={`Select ${item.title ?? item.firstUserMessage ?? item.id}`}
+                  accessibilityState={{ checked: isSelected }}
                   onPress={() => toggleSelected(item.id, row.sessionIndex, shiftPressedRef.current)}
                 >
                   {isSelected ? <Text style={styles.checkmark}>✓</Text> : null}
@@ -1477,7 +1513,13 @@ export function SessionsSurface({ theme, layout }: PluginSurfaceProps) {
 
             return (
               <View style={styles.row(isSelected)}>
-                <Pressable style={styles.checkbox(isSelected)} onPress={() => toggleSelected(item.id, index, shiftPressedRef.current)}>
+                <Pressable
+                  style={styles.checkbox(isSelected)}
+                  accessibilityRole="checkbox"
+                  accessibilityLabel={`Select ${item.title ?? item.firstUserMessage ?? item.id}`}
+                  accessibilityState={{ checked: isSelected }}
+                  onPress={() => toggleSelected(item.id, index, shiftPressedRef.current)}
+                >
                   {isSelected ? <Text style={styles.checkmark}>✓</Text> : null}
                 </Pressable>
                 {agentTab === AGENT_TAB_ALL ? (

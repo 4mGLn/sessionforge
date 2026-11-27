@@ -182,7 +182,7 @@ async function cmdCleanup(args: ParsedArgs): Promise<void> {
       return;
     }
 
-    console.log(dryRun ? "JUNK CANDIDATES (dry run — nothing changed)\n" : "TRASHED SESSIONS\n");
+    console.log(dryRun ? "JUNK CANDIDATES (dry run — nothing changed)\n" : "SESSIONS MARKED JUNK\n");
     for (const [index, session] of result.candidates.entries()) {
       console.log(`${index + 1}. ${session.agent} / ${session.project}`);
       console.log(`   Created: ${session.createdAt.slice(0, 10)}`);
@@ -190,7 +190,7 @@ async function cmdCleanup(args: ParsedArgs): Promise<void> {
       console.log(`   Reason: ${session.classification?.reason ?? "-"}`);
       console.log(`   Confidence: ${Math.round((session.classification?.confidence ?? 0) * 100)}%\n`);
     }
-    console.log(dryRun ? "Nothing deleted. Re-run with --apply to move these to trash." : `${result.applied.length} session(s) moved to trash.`);
+    console.log(dryRun ? "Re-run with --apply to mark eligible sessions as JUNK." : `${result.applied.length} session(s) marked JUNK.`);
   } finally {
     store.close();
   }

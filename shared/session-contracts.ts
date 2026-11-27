@@ -108,7 +108,7 @@ export const CleanupCandidateSchema = SessionSchema.pick({ id: true, agent: true
 
 export const cleanupSessionsRpc = defineRpc({
   name: "session.cleanup",
-  input: z.object({ dryRun: z.boolean().default(true) }),
+  input: z.object({ dryRun: z.boolean().default(true), reviewedIds: z.array(z.string()).optional() }),
   output: z.object({ candidates: z.array(CleanupCandidateSchema), appliedCount: z.number() }),
 });
 
@@ -126,9 +126,18 @@ export const restoreSessionRpc = defineRpc({
 
 export const deleteSessionsRpc = defineRpc({
   name: "session.delete",
-  input: z.object({ ids: z.array(z.string()), reason: z.string().optional() }),
+  input: z.object({
+    ids: z.array(z.string()),
+    fileMoveConfirmed: z.literal(true),
+    confirmedProtectedIds: z.array(z.string()).optional(),
+    reason: z.string().optional(),
+  }),
   output: z.object({
     deleted: z.array(SessionSchema),
-    failed: z.array(z.object({ id: z.string(), error: z.string() })),
+    failed: z.array(z.object({
+      id: z.string(),
+      error: z.string(),
+      confirmation: z.object({ label: z.string(), project: z.string() }).optional(),
+    })),
   }),
 });

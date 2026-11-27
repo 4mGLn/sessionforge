@@ -1,3 +1,5 @@
+import { stat } from "node:fs/promises";
+import { detectActivity } from "./activity.server.js";
 import type { AgentAdapter, Session } from "./types.server.js";
 import { defaultLifecycle } from "./discover.server.js";
 import type { SessionStore } from "./store.server.js";
@@ -17,7 +19,9 @@ function nowIso(): string {
 export function junkCandidates(store: SessionStore): Session[] {
   return store
     .listSessions({ category: "JUNK" })
-    .filter((session) => session.lifecycle !== "JUNK" && session.lifecycle !== "ARCHIVED");
+    .filter((session) =>
+      session.lifecycle !== "JUNK" && session.lifecycle !== "ARCHIVED" && !hasProtectedActivity(session),
+    );
 }
 
 export function archiveSession(store: SessionStore, id: string, actor: string, reason: string | null = null): Session {
@@ -78,7 +82,42 @@ export function restoreSession(store: SessionStore, id: string, actor: string, r
 
 export interface DeleteResult {
   deleted: Session[];
-  failed: Array<{ id: string; error: string }>;
+  failed: Array<{ id: string; error: string; confirmation?: { label: string; project: string } }>;
+}
+
+export interface DeleteOptions {
+  confirmedProtectedIds?: ReadonlySet<string>;
+  linkedNativeSessionIds?: ReadonlySet<string>;
+}
+
+function hasProtectedActivity(session: Session): boolean {
+  return session.lifecycle === "ONGOING" ||
+    session.status === "ACTIVE" || session.status === "RECENT" || session.status === "UNKNOWN";
+}
+
+class DeleteConfirmationRequiredError extends Error {
+  constructor(readonly session: Session, reason: string) {
+    super(reason);
+  }
+}
+
+async function protectedDeleteReason(session: Session, options: DeleteOptions): Promise<string | null> {
+  if (options.linkedNativeSessionIds?.has(session.nativeSessionId)) return "Linked to a saved Paseo agent";
+  if (hasProtectedActivity(session)) return "Active, recent, ongoing, or unverified session";
+  if (session.classification?.category !== "JUNK") return "Classified outside JUNK";
+  if (process.platform === "win32") return "Running session cannot be ruled out on Windows";
+
+  const file = await stat(session.storagePath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  const storedTime = Date.parse(session.lastActivityAt);
+  if (!Number.isFinite(storedTime)) return "Session activity could not be verified";
+  const lastActivityAt = new Date(Math.max(storedTime, file?.mtimeMs ?? 0)).toISOString();
+  const { status } = await detectActivity({ agentId: session.agent, workspace: session.workspace, lastActivityAt });
+  return status === "ACTIVE" || status === "RECENT" || status === "UNKNOWN"
+    ? "Live process or recent transcript activity detected"
+    : null;
 }
 
 /**
@@ -94,12 +133,28 @@ export async function deleteSession(
   id: string,
   actor: string,
   reason: string | null = null,
+  options: DeleteOptions = {},
 ): Promise<Session> {
   const session = store.getSession(id);
   if (!session) throw new SessionNotFoundError(id);
 
   const adapter = adapters.find((candidate) => candidate.agent === session.agent);
   if (!adapter?.delete) throw new Error(`No delete capability registered for agent "${session.agent}"`);
+
+  const confirmed = options.confirmedProtectedIds?.has(id) === true;
+  if (!confirmed) {
+    const protection = await protectedDeleteReason(session, options);
+    if (protection) throw new DeleteConfirmationRequiredError(session, protection);
+    // Discovery can update the row while filesystem and process checks are pending.
+    const current = store.getSession(id);
+    if (!current) throw new SessionNotFoundError(id);
+    if (current.storagePath !== session.storagePath || current.nativeSessionId !== session.nativeSessionId) {
+      throw new Error("Session file changed. Review the selection again.");
+    }
+    if (hasProtectedActivity(current) || current.classification?.category !== "JUNK") {
+      throw new DeleteConfirmationRequiredError(current, "Session activity or classification changed");
+    }
+  }
 
   await adapter.delete(session.storagePath);
 
@@ -109,7 +164,7 @@ export async function deleteSession(
     previousLifecycle: session.lifecycle,
     newLifecycle: null,
     actor,
-    reason,
+    reason: reason ?? (confirmed ? "Explicitly approved protected history move" : null),
     at: nowIso(),
   });
   store.deleteSession(id);
@@ -124,14 +179,26 @@ export async function deleteSessions(
   ids: readonly string[],
   actor: string,
   reason: string | null = null,
+  options: DeleteOptions = {},
 ): Promise<DeleteResult> {
   const deleted: Session[] = [];
-  const failed: Array<{ id: string; error: string }> = [];
+  const failed: DeleteResult["failed"] = [];
 
-  for (const id of ids) {
+  for (const id of new Set(ids)) {
     try {
-      deleted.push(await deleteSession(store, adapters, id, actor, reason));
+      deleted.push(await deleteSession(store, adapters, id, actor, reason, options));
     } catch (error) {
+      if (error instanceof DeleteConfirmationRequiredError) {
+        failed.push({
+          id,
+          error: error.message,
+          confirmation: {
+            label: error.session.title ?? error.session.firstUserMessage ?? id,
+            project: error.session.project,
+          },
+        });
+        continue;
+      }
       failed.push({ id, error: error instanceof Error ? error.message : String(error) });
     }
   }
@@ -146,13 +213,15 @@ export interface CleanupResult {
 }
 
 /** GOAL §11/§12: dry-run by default. Only trashes sessions when `dryRun` is explicitly false. */
-export function runCleanup(store: SessionStore, actor: string, dryRun: boolean): CleanupResult {
+export function runCleanup(
+  store: SessionStore, actor: string, dryRun: boolean, reviewedIds?: ReadonlySet<string>,
+): CleanupResult {
   if (dryRun) {
     return { dryRun: true, candidates: junkCandidates(store), applied: [] };
   }
 
   return store.runInTransaction(() => {
-    const candidates = junkCandidates(store);
+    const candidates = junkCandidates(store).filter((session) => !reviewedIds || reviewedIds.has(session.id));
     const applied = candidates.map((session) =>
       trashSession(store, session.id, actor, session.classification?.reason ?? null),
     );

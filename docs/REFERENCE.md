@@ -128,7 +128,11 @@ npm).
 In the Paseo plugin, the cleanup banner shows the first five candidates from the dry-run result.
 The full preview opens the same result in a virtualized list that renders rows as the user scrolls.
 The cleanup RPC returns lightweight candidates for preview and an applied count after confirmation.
-Applying cleanup commits lifecycle and audit updates in one transaction.
+Applying cleanup rechecks the reviewed IDs and commits the eligible sessions' lifecycle and audit
+updates in one transaction. File deletion uses a separate RPC. It checks saved Paseo history handles,
+inventory status and classification, and current activity evidence before allowing each file move.
+Protected results return a confirmation requirement with a reason, and the user can approve those
+specific session IDs in a separate dialog.
 The list RPC reports when discovery is running so a newly empty inventory can refresh automatically.
 Discovery defers its first scan until the cached list can respond. It writes sessions in batches
 and yields between them so list and cleanup requests can run during the scan.

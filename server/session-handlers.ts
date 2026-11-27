@@ -12,6 +12,7 @@ import {
   runDiscovery,
 } from "@aadaa88/sessionforge";
 import type { DiscoverResult, SessionFilter } from "@aadaa88/sessionforge";
+import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { setImmediate } from "node:timers/promises";
 
 const ACTOR = "paseo-plugin";
@@ -77,8 +78,10 @@ export function discoverSessions(): Promise<DiscoverResult> {
   return discoveryInFlight;
 }
 
-export async function cleanupSessions(input: { dryRun: boolean }) {
-  const result = runCleanup(store(), ACTOR, input.dryRun);
+export async function cleanupSessions(input: { dryRun: boolean; reviewedIds?: string[] }) {
+  if (!input.dryRun && !input.reviewedIds) throw new Error("Preview cleanup before marking sessions as JUNK");
+  const reviewedIds = input.reviewedIds && new Set(input.reviewedIds);
+  const result = runCleanup(store(), ACTOR, input.dryRun, reviewedIds);
   if (!result.dryRun) return { candidates: [], appliedCount: result.applied.length };
   return {
     candidates: result.candidates.map((session) => ({
@@ -101,6 +104,31 @@ export async function restoreSessionHandler(input: { id: string; reason?: string
   return { session: restoreSession(store(), input.id, ACTOR, input.reason ?? null) };
 }
 
-export async function deleteSessionsHandler(input: { ids: string[]; reason?: string }) {
-  return deleteSessions(store(), ADAPTERS, input.ids, ACTOR, input.reason ?? null);
+export async function deleteSessionsHandler(
+  input: { ids: string[]; confirmedProtectedIds?: string[]; reason?: string },
+  { paseo }: PluginHandlerContext,
+) {
+  const linkedNativeSessionIds = new Set<string>();
+  let cursor: string | undefined;
+  for (;;) {
+    const { entries, pageInfo } = await paseo.agents.list({
+      filter: { includeArchived: true },
+      page: { limit: 200, cursor },
+    });
+    for (const { agent } of entries) {
+      for (const id of [agent.persistence?.sessionId, agent.persistence?.nativeHandle, agent.runtimeInfo?.sessionId]) {
+        if (id) linkedNativeSessionIds.add(id);
+      }
+    }
+    if (!pageInfo.hasMore) break;
+    if (!pageInfo.nextCursor || pageInfo.nextCursor === cursor) {
+      throw new Error("Could not finish checking Paseo agent histories. Try again.");
+    }
+    cursor = pageInfo.nextCursor;
+  }
+
+  return deleteSessions(store(), ADAPTERS, input.ids, ACTOR, input.reason ?? null, {
+    confirmedProtectedIds: new Set(input.confirmedProtectedIds),
+    linkedNativeSessionIds,
+  });
 }

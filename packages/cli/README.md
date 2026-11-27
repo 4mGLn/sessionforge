@@ -30,7 +30,7 @@ sessionforge list --category junk --older-than 30d
 sessionforge show <session-id>
 sessionforge search "postgresql"
 sessionforge cleanup               # dry run (default) — nothing changes
-sessionforge cleanup --apply       # move current JUNK candidates to trash (still restorable)
+sessionforge cleanup --apply       # mark eligible sessions JUNK in SessionForge (restorable)
 sessionforge archive <session-id> --reason "done"
 sessionforge restore <session-id>
 sessionforge audit [session-id]

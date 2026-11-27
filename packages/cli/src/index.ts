@@ -43,7 +43,7 @@ export { detectRelationships } from "./core/relationships.server.js";
 export type { DiscoverResult } from "./core/discover.server.js";
 export { defaultLifecycle, runDiscovery } from "./core/discover.server.js";
 
-export type { CleanupResult, DeleteResult } from "./core/lifecycle-actions.server.js";
+export type { CleanupResult, DeleteOptions, DeleteResult } from "./core/lifecycle-actions.server.js";
 export {
   SessionNotFoundError,
   archiveSession,

@@ -145,8 +145,8 @@ automatically during the first discovery. If loading fails, select **Retry**.
 
 **Preview cleanup** shows the first five recommendations. If there are more, select **View … more**
 to open the complete list and scroll through it. Each row shows why the session was recommended.
-Close the list to return to the preview. To apply cleanup, select **Move to trash** and confirm.
-The preview and move each show a progress indicator, and the move reports how many sessions it changed.
+Close the list to return to the preview. Select **Mark as JUNK** to update the reviewed sessions in
+SessionForge. The preview and update show progress, and the update reports how many sessions changed.
 
 ## Staying up to date
 
@@ -181,15 +181,20 @@ you if the installed plugin has drifted from the CLI's own version.
   transcript/session file.
 - "Archive" and "cleanup" only change SessionForge's own `lifecycle` field in its own database
   (`ARCHIVED` / `JUNK`) — fully restorable via `sessionforge restore <id>`, nothing on disk is touched.
-- Bulk "Delete selected" is the one action that does touch an agent-owned file: it moves it to the current
+- Bulk **Trash history files** moves agent-owned history files to the current
   OS's real trash/recycle bin (see [Platform support](#platform-support)) — never a hard delete, and
   SessionForge's own record of it is dropped once that succeeds. OpenCode and Aider sessions can't be
   deleted this way: neither has a discrete per-session file (OpenCode's sessions all live as rows in one
   shared live SQLite database; Aider's share one growing per-repo markdown log), so their adapters simply
   don't implement `delete()` — attempting it reports "no delete capability" rather than risking a
   destructive edit to a file another tool is actively using.
-- `cleanup` defaults to `--dry-run` (prints candidates, changes nothing). Pass `--apply` to actually trash
-  the current JUNK candidates.
+- The plugin requires separate approval for the protected history files listed in the dialog. This covers files linked to
+  saved Paseo agents, sessions outside the JUNK classification, sessions with signs of activity, and
+  Windows sessions where SessionForge lacks the live process check. The dialog lists the protected
+  files and explains the effect on history and resume.
+- `cleanup` defaults to `--dry-run`. Pass `--apply` to mark eligible candidates JUNK in the database.
+  Cleanup skips active, recent, ongoing, and unverified sessions. The Paseo plugin applies cleanup to
+  the reviewed selection and checks eligibility again before updating it.
 - Every archive/restore/cleanup/delete action is recorded in an `audit_log` table (`sessionforge audit [id]`).
 - Once a session's lifecycle is explicitly set by a user action (`ARCHIVED`/`JUNK`), subsequent
   `discover` rescans will not silently flip it back — see `STICKY_LIFECYCLES` in

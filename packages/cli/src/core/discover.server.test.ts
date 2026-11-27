@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClaudeCodeAdapter } from "./claude-adapter.server.js";
 import { runDiscovery } from "./discover.server.js";
-import { archiveSession, restoreSession, runCleanup } from "./lifecycle-actions.server.js";
+import { archiveSession, deleteSessions, restoreSession, runCleanup } from "./lifecycle-actions.server.js";
 import { SessionStore } from "./store.server.js";
 
 function jsonl(...lines: Record<string, unknown>[]): string {
@@ -129,6 +129,59 @@ describe("discover + lifecycle actions (integration)", () => {
 
     const audit = store.listAudit();
     expect(audit.some((entry) => entry.action === "TRASH")).toBe(true);
+  });
+
+  it("skips ongoing sessions and applies cleanup only to reviewed IDs without moving files", async () => {
+    await runDiscovery(store, [new ClaudeCodeAdapter()]);
+    const [junk] = store.listSessions({ category: "JUNK" });
+    const transcript = await readFile(junk.storagePath, "utf8");
+    store.upsertSession({ ...junk, lifecycle: "ONGOING" });
+    expect(runCleanup(store, "test", true).candidates).toEqual([]);
+    expect(runCleanup(store, "test", false, new Set([junk.id])).applied).toEqual([]);
+    store.upsertSession({ ...junk, lifecycle: "ABANDONED" });
+    expect(runCleanup(store, "test", false, new Set()).applied).toEqual([]);
+    expect(runCleanup(store, "test", false, new Set([junk.id])).applied.map((session) => session.id)).toEqual([junk.id]);
+    expect(await readFile(junk.storagePath, "utf8")).toBe(transcript);
+  });
+
+  it("requires separate approval for each running or Paseo-linked history", async () => {
+    const adapter = new ClaudeCodeAdapter();
+    await runDiscovery(store, [adapter]);
+    const [linked] = store.listSessions({ category: "JUNK" });
+    const [running] = store.listSessions({ category: "KEEP" });
+    store.upsertSession({ ...running, status: "ACTIVE", lifecycle: "ONGOING" });
+
+    const trashPath = join(root, "trashed-transcript.jsonl");
+    const move = vi.spyOn(adapter, "delete").mockImplementation((path) => rename(path, trashPath));
+    const ids = [linked.id, running.id];
+    const options = { linkedNativeSessionIds: new Set([linked.nativeSessionId]) };
+    const blocked = await deleteSessions(store, [adapter], ids, "test", null, options);
+    expect(blocked.deleted).toEqual([]);
+    expect(blocked.failed.map((failure) => failure.id)).toEqual(ids);
+    expect(blocked.failed.every((failure) => failure.confirmation)).toBe(true);
+    expect(move).not.toHaveBeenCalled();
+    expect(store.listAudit()).toHaveLength(0);
+
+    const approved = await deleteSessions(store, [adapter], ids, "test", null, {
+      ...options,
+      confirmedProtectedIds: new Set([linked.id]),
+    });
+    expect(approved.deleted.map((session) => session.id)).toEqual([linked.id]);
+    expect(approved.failed.map((failure) => failure.id)).toEqual([running.id]);
+    expect(move).toHaveBeenCalledExactlyOnceWith(linked.storagePath);
+    expect(await readFile(trashPath, "utf8")).toContain("junk-session");
+    expect(await readFile(running.storagePath, "utf8")).toContain("keep-session");
+  });
+
+  it.runIf(process.platform !== "win32")("blocks a recently written transcript even if the inventory calls it stale", async () => {
+    const adapter = new ClaudeCodeAdapter();
+    await runDiscovery(store, [adapter]);
+    const [junk] = store.listSessions({ category: "JUNK" });
+    store.upsertSession({ ...junk, status: "STALE", lifecycle: "ABANDONED" });
+    const move = vi.spyOn(adapter, "delete");
+    const result = await deleteSessions(store, [adapter], [junk.id], "test");
+    expect(result.failed[0]).toMatchObject({ id: junk.id, error: "Live process or recent transcript activity detected" });
+    expect(move).not.toHaveBeenCalled();
   });
 
   it("rolls back lifecycle and audit changes when applying cleanup fails", async () => {
